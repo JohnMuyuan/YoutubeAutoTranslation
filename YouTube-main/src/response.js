@@ -6,7 +6,7 @@ import database from "./function/database.mjs";
 import setENV from "./function/setENV.mjs";
 import setCaptions from "./function/setCaptions.mjs";
 import detectFormat from "./function/detectFormat.mjs";
-import { extractProtobufText, replaceProtobufText } from "./function/protobufWire.mjs";
+import { extractProtobufText, replaceProtobufText, extractProtobufTextBySuffix, replaceProtobufTextBySuffix } from "./function/protobufWire.mjs";
 import Composite from "./class/Composite.mjs";
 import Translate from "./class/Translate.mjs";
 import { PlayerResponse } from "./protobuf/google/protos/youtube/api/innertube/PlayerResponse.js";
@@ -21,7 +21,10 @@ Console.info(`url: ${url.toJSON()}`);
 const PATHs = url.pathname.split("/").filter(Boolean);
 Console.info(`PATHs: ${PATHs}`);
 // 解析格式
-let FORMAT = ($response.headers?.["Content-Type"] ?? $response.headers?.["content-type"] ?? $request.headers?.Accept ?? $request.headers?.accept)?.split(";")?.[0];
+let FORMAT = ($response.headers?.["Content-Type"] ?? $response.headers?.["content-type"] ?? $request.headers?.Accept ?? $request.headers?.accept)?.split(";")?.[0]?.trim()?.toLowerCase();
+if (!FORMAT && url.hostname === "youtubei.googleapis.com") {
+	FORMAT = "application/x-protobuf";
+}
 if (url.pathname === "/api/timedtext" && (FORMAT === "application/octet-stream" || FORMAT === "text/plain" || FORMAT === "text/html" || !FORMAT)) {
 	FORMAT = detectFormat(url, $response?.body, FORMAT);
 }
@@ -101,7 +104,7 @@ Console.info(`FORMAT: ${FORMAT}`);
 		case "application/grpc":
 		case "application/grpc+proto":
 		case "application/octet-stream": {
-			let rawBody = $app === "Quantumult X" ? new Uint8Array($response.bodyBytes ?? []) : ($response.body ?? new Uint8Array());
+			let rawBody = $app === "Quantumult X" ? new Uint8Array($response.bodyBytes ?? []) : new Uint8Array($response.body ?? []);
 			switch (FORMAT) {
 				case "application/protobuf":
 				case "application/x-protobuf":
@@ -166,11 +169,19 @@ Console.info(`FORMAT: ${FORMAT}`);
 							break;
 						}
 						case "/youtubei/v1/browse": {
-							body = BrowseResponse.fromBinary(rawBody);
-							Console.debug(`body: ${JSON.stringify(body)}`);
-							const translated = await translateBrowseLyrics(body, Settings, Languages);
-							if (translated) {
-								rawBody = BrowseResponse.toBinary(body);
+							let translated = false;
+							try {
+								body = BrowseResponse.fromBinary(rawBody);
+								Console.debug(`body: ${JSON.stringify(body)}`);
+								translated = await translateBrowseLyrics(body, Settings, Languages);
+								if (translated) {
+									rawBody = BrowseResponse.toBinary(body);
+								}
+							} catch (error) {
+								Console.warn(`BrowseResponse parse warning: ${error?.message ?? error}`);
+							}
+							if (!translated) {
+								rawBody = await translateGetPanelLyrics(rawBody, Settings, Languages);
 							}
 							break;
 						}
@@ -197,8 +208,17 @@ Console.info(`FORMAT: ${FORMAT}`);
 	.finally(() => done($response));
 
 async function handleTimedText(url, format, Type, Settings, Caches, Languages) {
+	if (url.searchParams.has("dualsubs_subreq")) return;
 	const kind = url.searchParams.get("kind");
-	if (Type === "Official" || Type === "Composite") {
+	const lang = url.searchParams.get("lang");
+	const hasSubtype = url.searchParams.has("subtype");
+	const hasTlang = url.searchParams.has("tlang");
+	if (!hasSubtype && !hasTlang) {
+		if (Settings.AutoCC === false) return;
+		if (lang?.split?.(/[-_]/)?.[0]?.toLowerCase?.() === Languages?.[1]?.split?.(/[-_]/)?.[0]?.toLowerCase?.()) return;
+	}
+	const effectiveType = !hasTlang && (Type === "Official" || Type === "Composite") ? "Translate" : Type;
+	if (effectiveType === "Official" || effectiveType === "Composite") {
 		const v = url.searchParams.get("v");
 		const subUrl = new URL(url.toString());
 		const cachedLang = Caches?.Playlists?.Subtitle?.get?.(v);
@@ -208,10 +228,13 @@ async function handleTimedText(url, format, Type, Settings, Caches, Languages) {
 		subUrl.searchParams.delete("tlang");
 		subUrl.searchParams.delete("subtype");
 		subUrl.searchParams.set("dualsubs_subreq", "1");
+		const subHeaders = { ...($request.headers || {}) };
+		delete subHeaders.Cookie;
+		delete subHeaders.cookie;
 		const requests = [
 			{
 				url: subUrl.toString(),
-				headers: $request.headers,
+				headers: subHeaders,
 			},
 		];
 		// YouTube 官方字幕中 Sub1 为译文(tlang)、Sub2 为原文(lang)，因此合成方向需反转
@@ -226,9 +249,9 @@ async function handleTimedText(url, format, Type, Settings, Caches, Languages) {
 				return _response?.body ?? "";
 			}),
 		);
-		const validSub2 = Subtitles.find(s => s && s.trim().length > 0) || "";
+		const validSub2 = Subtitles.find(s => s && s.trim().length > 0 && !s.includes("<title>Sorry...</title>")) || "";
 		let activeFormat = format;
-		if ((!activeFormat || !$response?.body?.trim?.()) && validSub2) {
+		if ((!activeFormat || !$response?.body?.trim?.() || $response?.body?.includes?.("<title>Sorry...</title>")) && validSub2) {
 			activeFormat = detectFormat(url, validSub2, activeFormat);
 		}
 		switch (activeFormat) {
@@ -239,17 +262,21 @@ async function handleTimedText(url, format, Type, Settings, Caches, Languages) {
 			case "application/plist":
 			case "application/x-plist": {
 				const rawSub1 = $response?.body ?? "";
-				let body1 = rawSub1.trim() ? XML.parse(rawSub1) : {};
+				let body1 = rawSub1.trim() && !rawSub1.includes("<title>Sorry...</title>") ? XML.parse(rawSub1) : {};
 				const body2 = validSub2 ? XML.parse(validSub2) : {};
-				const hasSub1Cues = Boolean(body1?.timedtext?.body?.p);
-				const hasSub2Cues = Boolean(body2?.timedtext?.body?.p);
+				const hasSub1Cues = Boolean(body1?.timedtext?.body?.p || body1?.transcript?.text);
+				const hasSub2Cues = Boolean(body2?.timedtext?.body?.p || body2?.transcript?.text);
 				if (hasSub1Cues && hasSub2Cues && !Settings.ShowOnly) {
 					body1 = new Composite(compositeSettings).timedText(body1, body2, kind);
-					$response.body = XML.stringify(body1);
+					$response.body = XML.stringify(body1).replace(/&amp;#x000A;/g, "&#x000A;");
 				} else if (!hasSub1Cues && hasSub2Cues) {
-					Console.warn("官方翻译字幕返回为空，自动回退至第三方翻译合并原文字幕");
+					Console.warn("官方翻译字幕返回为空或429，自动回退至第三方翻译合并原文字幕");
 					$response.body = await translateXmlSubtitles(validSub2, kind, Settings, Languages);
 					$response.status = $app === "Quantumult X" ? "HTTP/1.1 200 OK" : 200;
+					if ($response.headers) {
+						$response.headers["Content-Type"] = "text/xml; charset=UTF-8";
+						$response.headers["content-type"] = "text/xml; charset=UTF-8";
+					}
 				}
 				break;
 			}
@@ -266,14 +293,18 @@ async function handleTimedText(url, format, Type, Settings, Caches, Languages) {
 				} else if (!hasSub1Cues && hasSub2Cues) {
 					$response.body = await translateVttSubtitles(validSub2, Settings, Languages);
 					$response.status = $app === "Quantumult X" ? "HTTP/1.1 200 OK" : 200;
+					if ($response.headers) {
+						$response.headers["Content-Type"] = "text/vtt; charset=UTF-8";
+						$response.headers["content-type"] = "text/vtt; charset=UTF-8";
+					}
 				}
 				break;
 			}
 			case "text/json":
 			case "application/json": {
 				const rawSub1 = $response?.body ?? "";
-				let body1 = rawSub1.trim() ? JSON.parse(rawSub1) : {};
-				const body2 = validSub2 ? JSON.parse(validSub2) : {};
+				let body1 = rawSub1.trim() && rawSub1.trim().startsWith("{") ? JSON.parse(rawSub1) : {};
+				const body2 = validSub2 && validSub2.trim().startsWith("{") ? JSON.parse(validSub2) : {};
 				const hasSub1Cues = Array.isArray(body1?.events) && body1.events.length > 0;
 				const hasSub2Cues = Array.isArray(body2?.events) && body2.events.length > 0;
 				if (hasSub1Cues && hasSub2Cues && !Settings.ShowOnly) {
@@ -282,13 +313,17 @@ async function handleTimedText(url, format, Type, Settings, Caches, Languages) {
 				} else if (!hasSub1Cues && hasSub2Cues) {
 					$response.body = await translateJsonSubtitles(validSub2, kind, Settings, Languages);
 					$response.status = $app === "Quantumult X" ? "HTTP/1.1 200 OK" : 200;
+					if ($response.headers) {
+						$response.headers["Content-Type"] = "application/json; charset=UTF-8";
+						$response.headers["content-type"] = "application/json; charset=UTF-8";
+					}
 				}
 				break;
 			}
 		}
 	} else {
 		const rawBody = $response?.body ?? "";
-		if (!rawBody.trim()) return;
+		if (!rawBody.trim() || rawBody.includes("<title>Sorry...</title>")) return;
 		const activeFormat = format || detectFormat(url, rawBody);
 		switch (activeFormat) {
 			case "text/xml":
@@ -313,6 +348,19 @@ async function handleTimedText(url, format, Type, Settings, Caches, Languages) {
 
 async function translateXmlSubtitles(xmlText, kind, Settings, Languages) {
 	const body = XML.parse(xmlText);
+	if (body?.transcript?.text) {
+		const rawTexts = Array.isArray(body.transcript.text) ? body.transcript.text : [body.transcript.text];
+		const tList = rawTexts.filter(item => item && typeof item["#"] === "string" && item["#"].trim());
+		if (tList.length > 0) {
+			const fullText = tList.map(item => decodeHTML(item["#"].replace(/[\r\n]+/g, " ").trim()) || "\u200b");
+			const translation = await translateTextList(fullText, Settings, Languages);
+			tList.forEach((item, i) => {
+				item["#"] = combineText(item["#"].replace(/[\r\n]+/g, " ").trim(), translation?.[i], Settings?.ShowOnly, Settings?.Position, "&#x000A;");
+			});
+			body.transcript.text = tList;
+		}
+		return XML.stringify(body).replace(/&amp;#x000A;/g, "&#x000A;");
+	}
 	const isAsr = kind === "asr";
 	if (isAsr) {
 		if (Array.isArray(body?.timedtext?.head?.wp) && body.timedtext.head.wp[1]) {
@@ -330,7 +378,7 @@ async function translateXmlSubtitles(xmlText, kind, Settings, Languages) {
 			else para["#"] = para.s?.["#"] ?? "";
 			delete para.s;
 		}
-		if (typeof para["#"] === "string") para["#"] = para["#"].trim();
+		if (typeof para["#"] === "string") para["#"] = para["#"].replace(/[\r\n]+/g, " ").trim();
 		if (para["#"]) {
 			if (isAsr) delete para["@w"];
 			pList.push(para);
@@ -354,7 +402,7 @@ async function translateXmlSubtitles(xmlText, kind, Settings, Languages) {
 		});
 		body.timedtext.body.p = pList;
 	}
-	return XML.stringify(body);
+	return XML.stringify(body).replace(/&amp;#x000A;/g, "&#x000A;");
 }
 
 async function translateVttSubtitles(vttText, Settings, Languages) {
@@ -499,6 +547,12 @@ const GET_PANEL_LYRIC_PATHS = [
 	[2, 138681066, 3, 153515154, 172660663, 1, 221496734, 1, 1, 1],
 ];
 
+const LYRIC_SUFFIX_PATHS = [
+	[465160965, 4, 1, 1],
+	[465100242, 1, 1, 1, 1],
+	[221496734, 1, 1, 1],
+];
+
 async function translateGetPanelLyrics(rawBody, Settings, Languages) {
 	const bytes = rawBody instanceof Uint8Array ? rawBody : new Uint8Array(rawBody ?? []);
 	for (const path of GET_PANEL_LYRIC_PATHS) {
@@ -518,6 +572,24 @@ async function translateGetPanelLyrics(rawBody, Settings, Languages) {
 		const translated = await translateTextList(fullText, Settings, Languages);
 		const combined = lyrics.map((origin, index) => combineText(origin, translated?.[index], Settings?.ShowOnly, Settings?.Position, "\n"));
 		return replaceProtobufText(bytes, path, combined).body;
+	}
+	for (const suffixPath of LYRIC_SUFFIX_PATHS) {
+		const lyrics = extractProtobufTextBySuffix(bytes, suffixPath);
+		if (!lyrics.length) continue;
+		Console.info(`YouTube Music suffix wire lyrics: ${lyrics.length} entries`);
+		if (lyrics.length === 1 && lyrics[0].includes("\n")) {
+			const lines = lyrics[0].split("\n");
+			const fullText = lines.map(line => line.trim() || "\u200b");
+			const translation = await translateTextList(fullText, Settings, Languages);
+			const combinedBlock = lines
+				.map((line, i) => (line.trim() ? combineText(line, translation?.[i], Settings?.ShowOnly, Settings?.Position, "\n") : ""))
+				.join("\n");
+			return replaceProtobufTextBySuffix(bytes, suffixPath, [combinedBlock]).body;
+		}
+		const fullText = lyrics.map(line => line.trim() || "\u200b");
+		const translated = await translateTextList(fullText, Settings, Languages);
+		const combined = lyrics.map((origin, index) => combineText(origin, translated?.[index], Settings?.ShowOnly, Settings?.Position, "\n"));
+		return replaceProtobufTextBySuffix(bytes, suffixPath, combined).body;
 	}
 	return rawBody;
 }

@@ -14,9 +14,11 @@ export default function setENV(name, platforms, database) {
 	Console.log("☑️ Set Environment Variables");
 	const { Settings, Caches, Configs } = getStorage(name, platforms, database);
 	/***************** Settings *****************/
-	if (!Array.isArray(Settings?.Types)) Settings.Types = Settings.Types ? String(Settings.Types).split(",") : []; // 只有一个选项时，无逗号分隔
+	if (!Array.isArray(Settings?.Types)) Settings.Types = Settings?.Types ? String(Settings.Types).split(",") : []; // 只有一个选项时，无逗号分隔
 	if (typeof Settings?.Languages === "string") Settings.Languages = Settings.Languages.split(",");
 	if (!Array.isArray(Settings?.Languages)) Settings.Languages = ["AUTO", "ZH-HANS"];
+	if (Settings?.Source) Settings.Languages[0] = Settings.Source;
+	if (Settings?.Target) Settings.Languages[1] = Settings.Target;
 	Settings.Languages[0] = Settings.Languages[0] || "AUTO";
 	Settings.Languages[1] = Settings.Languages[1] || "ZH-HANS";
 	Console.info(`typeof Settings: ${typeof Settings}`, `Settings: ${JSON.stringify(Settings, null, 2)}`);

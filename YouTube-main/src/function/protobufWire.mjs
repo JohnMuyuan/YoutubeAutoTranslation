@@ -65,6 +65,14 @@ function fields(bytes) {
 	return result;
 }
 
+function tryFields(bytes) {
+	try {
+		return fields(bytes);
+	} catch {
+		return null;
+	}
+}
+
 function concat(chunks) {
 	const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
 	const output = new Uint8Array(length);
@@ -122,5 +130,72 @@ export function replaceProtobufText(bytes, path, replacements) {
 	if (replacementIndex !== replacements.length) {
 		throw new Error(`Unused protobuf text replacements: ${replacements.length - replacementIndex}`);
 	}
+	return { body: result.bytes, count: replacementIndex };
+}
+
+export function extractProtobufTextBySuffix(bytes, suffixPath) {
+	const text = [];
+	const anchor = suffixPath[0];
+	const innerPath = suffixPath.slice(1);
+	function search(message, depth) {
+		if (depth > 16) return;
+		const parsed = tryFields(message);
+		if (!parsed) return;
+		for (const field of parsed) {
+			if (field.wire !== 2) continue;
+			const payload = message.subarray(field.payloadStart, field.payloadEnd);
+			if (field.field === anchor) {
+				try {
+					text.push(...extractProtobufText(payload, innerPath));
+				} catch {}
+			} else if (payload.length > 2) {
+				search(payload, depth + 1);
+			}
+		}
+	}
+	search(bytes, 0);
+	return text;
+}
+
+export function replaceProtobufTextBySuffix(bytes, suffixPath, replacements) {
+	let replacementIndex = 0;
+	const anchor = suffixPath[0];
+	const innerPath = suffixPath.slice(1);
+	function searchReplace(message, depth) {
+		if (depth > 16) return { bytes: message, changed: false };
+		const parsed = tryFields(message);
+		if (!parsed) return { bytes: message, changed: false };
+		let changed = false;
+		const chunks = [];
+		for (const field of parsed) {
+			if (field.wire !== 2) {
+				chunks.push(message.subarray(field.start, field.end));
+				continue;
+			}
+			const payload = message.subarray(field.payloadStart, field.payloadEnd);
+			let nextPayload = payload;
+			if (field.field === anchor) {
+				try {
+					const found = extractProtobufText(payload, innerPath);
+					if (found.length > 0) {
+						const slice = replacements.slice(replacementIndex, replacementIndex + found.length);
+						replacementIndex += found.length;
+						nextPayload = replaceProtobufText(payload, innerPath, slice).body;
+					}
+				} catch {}
+			} else if (payload.length > 2) {
+				const nested = searchReplace(payload, depth + 1);
+				nextPayload = nested.bytes;
+			}
+			if (nextPayload === payload) {
+				chunks.push(message.subarray(field.start, field.end));
+				continue;
+			}
+			changed = true;
+			chunks.push(message.subarray(field.start, field.tagEnd), writeVarint(nextPayload.length), nextPayload);
+		}
+		return { bytes: changed ? concat(chunks) : message, changed };
+	}
+	const result = searchReplace(bytes, 0);
 	return { body: result.bytes, count: replacementIndex };
 }

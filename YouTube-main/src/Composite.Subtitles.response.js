@@ -89,7 +89,7 @@ Console.info(`FORMAT: ${FORMAT}`);
 			const hasSub2Cues = Boolean(body2?.timedtext?.body?.p);
 			if (hasSub1Cues && hasSub2Cues && !Settings.ShowOnly) {
 				body1 = new Composite(compositeSettings).timedText(body1, body2, url.searchParams.get("kind"));
-				$response.body = XML.stringify(body1);
+				$response.body = XML.stringify(body1).replace(/&amp;#x000A;/g, "&#x000A;");
 			} else if (!hasSub1Cues && hasSub2Cues) {
 				Console.warn("官方翻译字幕返回为空，自动回退至第三方翻译合并原文字幕");
 				$response.body = await translateXmlSubtitles(validSub2, url.searchParams.get("kind"), Settings, Languages);
@@ -193,7 +193,7 @@ async function translateXmlSubtitles(xmlText, kind, Settings, Languages) {
 		});
 		body.timedtext.body.p = pList;
 	}
-	return XML.stringify(body);
+	return XML.stringify(body).replace(/&amp;#x000A;/g, "&#x000A;");
 }
 
 async function translateVttSubtitles(vttText, Settings, Languages) {

@@ -410,6 +410,7 @@ export default class Translate {
 	async Google(text = [], source = this.Source, target = this.Target) {
 		Console.log("☑️ Google", `source: ${source}`, `target: ${target}`);
 		text = Array.isArray(text) ? text : [text];
+		const sanitized = text.map(item => String(item ?? "").replace(/[\r\n]+/g, " ").trim() || "\u200b");
 		source = this.#LanguagesCode.Google[source] ?? this.#LanguagesCode.Google[source?.split?.(/[-_]/)?.[0]?.toUpperCase?.()] ?? source.toLowerCase();
 		target = this.#LanguagesCode.Google[target] ?? this.#LanguagesCode.Google[target?.split?.(/[-_]/)?.[0]?.toUpperCase?.()] ?? target.toLowerCase();
 		const BaseURL = "https://translate.googleapis.com";
@@ -433,13 +434,19 @@ export default class Translate {
 				Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 				"Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
 			},
-			body: text.map(item => `q=${encodeURIComponent(item)}`).join("&"),
+			body: `q=${encodeURIComponent(sanitized.join("\n"))}`,
 		};
 		return await fetch(Request)
 			.then(response => {
 				const body = JSON.parse(response.body);
-				if (Array.isArray(body)) return body.map(item => item?.sentences?.map(sentence => sentence?.trans ?? "").join("") ?? "");
-				else return body?.sentences?.map(sentence => sentence?.trans ?? "");
+				if (Array.isArray(body?.[0])) {
+					return body[0].map(item => item?.[0] ?? "").join("").split(/\r?\n/);
+				}
+				if (Array.isArray(body)) {
+					return body.map(item => item?.sentences?.map(sentence => sentence?.trans ?? "").join("") ?? "");
+				}
+				const joined = body?.sentences?.map(sentence => sentence?.trans ?? "").join("") ?? "";
+				return joined.split(/\r?\n/);
 			})
 			.catch(error => Promise.reject(error))
 			.finally(() => {

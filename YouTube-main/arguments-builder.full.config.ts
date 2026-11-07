@@ -54,11 +54,11 @@ const languageOptions = [
 export const argType: ArgumentItem = {
 	key: "Type",
 	name: "[字幕] 启用类型",
-	defaultValue: "Official",
+	defaultValue: "Translate",
 	type: "string",
 	options: [
-		{ key: "Official", label: "官方字幕（合成器，自动回退翻译器）" },
-		{ key: "Translate", label: "翻译字幕（翻译器）" }
+		{ key: "Translate", label: "翻译字幕（翻译器，推荐）" },
+		{ key: "Official", label: "官方字幕（合成器，自动回退翻译器）" }
 	],
 	description: "请选择要使用的字幕，双语字幕将使用您选择类型呈现。"
 };
@@ -85,7 +85,7 @@ export const argAutoCC: ArgumentItem = {
 };
 
 export const argLanguages0: ArgumentItem = {
-	key: "Languages[0]",
+	key: "Source",
 	name: "[字幕/歌词] 主语言（源语言）",
 	defaultValue: "AUTO",
 	type: "string",
@@ -94,7 +94,7 @@ export const argLanguages0: ArgumentItem = {
 };
 
 export const argLanguages1: ArgumentItem = {
-	key: "Languages[1]",
+	key: "Target",
 	name: "[字幕/歌词] 副语言（目标语言）",
 	defaultValue: "ZH-HANS",
 	type: "string",
@@ -138,7 +138,7 @@ export const argShowOnly: ArgumentItem = {
 export const argStorage: ArgumentItem = {
 	key: "Storage",
 	name: "[储存] 配置类型",
-	defaultValue: "PersistentStore",
+	defaultValue: "Argument",
 	type: "string",
 	exclude: ["boxjs"],
 	options: [
@@ -146,7 +146,7 @@ export const argStorage: ArgumentItem = {
 		{ key: "PersistentStore", label: "持久化存储优先" },
 		{ key: "database", label: "仅使用默认配置" }
 	],
-	description: "默认优先使用设置面板或 BoxJS 保存的配置，其次使用插件配置，最后使用脚本默认配置。"
+	description: "默认优先使用插件配置，其次使用设置面板或 BoxJS 保存的配置，最后使用脚本默认配置。"
 };
 
 export const argLogLevel: ArgumentItem = {

@@ -163,6 +163,11 @@ Console.info(`FORMAT: ${FORMAT}`);
 										Console.info("自动翻译字幕：开启");
 										if (Caches.tlang) {
 											if (Caches.tlang !== lang) url.searchParams.set("tlang", Caches.tlang);
+										} else if (Settings.Type === "Translate") {
+											const targetLang = Configs?.Languages?.[Settings?.Languages?.[1]] || "zh-Hans";
+											if (targetLang && targetLang?.split?.(/[-_]/)?.[0]?.toLowerCase?.() !== lang?.split?.(/[-_]/)?.[0]?.toLowerCase?.()) {
+												url.searchParams.set("tlang", targetLang);
+											}
 										}
 										break;
 									case false:

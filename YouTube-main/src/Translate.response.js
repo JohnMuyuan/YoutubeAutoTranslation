@@ -87,7 +87,7 @@ Console.info(`FORMAT: ${FORMAT}`);
 				});
 				body.timedtext.body.p = pList;
 			}
-			$response.body = XML.stringify(body);
+			$response.body = XML.stringify(body).replace(/&amp;#x000A;/g, "&#x000A;");
 			break;
 		}
 		case "text/vtt":
