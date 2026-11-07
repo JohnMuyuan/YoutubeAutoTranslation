@@ -1,0 +1,591 @@
+import { $app, Console, done, fetch, Lodash as _, Storage } from "@nsnanocat/util";
+import XML from "@nsnanocat/xml";
+import { WireType, UnknownFieldHandler, reflectionMergePartial, MessageType } from "@protobuf-ts/runtime";
+import WebVTT from "./WebVTT/WebVTT.mjs";
+import database from "./function/database.mjs";
+import setENV from "./function/setENV.mjs";
+import setCaptions from "./function/setCaptions.mjs";
+import detectFormat from "./function/detectFormat.mjs";
+import { extractProtobufText, replaceProtobufText } from "./function/protobufWire.mjs";
+import Composite from "./class/Composite.mjs";
+import Translate from "./class/Translate.mjs";
+import { PlayerResponse } from "./protobuf/google/protos/youtube/api/innertube/PlayerResponse.js";
+import { GetWatchResponse } from "./protobuf/google/protos/youtube/api/innertube/GetWatchResponse.js";
+import { BrowseResponse } from "./protobuf/google/protos/youtube/api/innertube/BrowseResponse.js";
+
+/***************** Processing *****************/
+// 解构URL
+const url = new URL($request.url);
+Console.info(`url: ${url.toJSON()}`);
+// 获取连接参数
+const PATHs = url.pathname.split("/").filter(Boolean);
+Console.info(`PATHs: ${PATHs}`);
+// 解析格式
+let FORMAT = ($response.headers?.["Content-Type"] ?? $response.headers?.["content-type"] ?? $request.headers?.Accept ?? $request.headers?.accept)?.split(";")?.[0];
+if (url.pathname === "/api/timedtext" && (FORMAT === "application/octet-stream" || FORMAT === "text/plain" || FORMAT === "text/html" || !FORMAT)) {
+	FORMAT = detectFormat(url, $response?.body, FORMAT);
+}
+Console.info(`FORMAT: ${FORMAT}`);
+(async () => {
+	/**
+	 * 设置
+	 * @type {{Settings: import('./types').Settings}}
+	 */
+	const { Settings, Caches, Configs } = setENV("DualSubs", ["YouTube", "Composite", "Translate", "External", "Universal", "API"], database);
+	Console.logLevel = Settings.LogLevel;
+	const Type = url.searchParams?.get("subtype") ?? Settings.Type;
+	const Languages = [url.searchParams?.get("lang")?.toUpperCase?.() ?? Settings.Languages[0], (url.searchParams?.get("tlang") ?? Caches?.tlang)?.toUpperCase?.() ?? Settings.Languages[1]];
+	// 创建空数据
+	let body = {};
+	// 优先处理 /api/timedtext 字幕响应
+	if (url.pathname === "/api/timedtext") {
+		await handleTimedText(url, FORMAT, Type, Settings, Caches, Languages);
+		return;
+	}
+	// 在 player / get_watch 时初始化默认自动翻译语言，确保首次启用即支持双语
+	if ((url.pathname === "/youtubei/v1/player" || url.pathname === "/youtubei/v1/get_watch") && Settings.AutoCC && !Caches.tlang) {
+		const defaultTlang = Configs?.Languages?.[Settings?.Languages?.[1]] || "zh-Hans";
+		Caches.tlang = defaultTlang;
+		Storage.setItem("@DualSubs.YouTube.Caches.tlang", Caches.tlang);
+	}
+	// 格式判断
+	switch (FORMAT) {
+		case undefined: // 视为无body
+			break;
+		case "application/x-www-form-urlencoded":
+		case "text/plain":
+		default:
+			break;
+		case "application/x-mpegURL":
+		case "application/x-mpegurl":
+		case "application/vnd.apple.mpegurl":
+		case "audio/mpegurl":
+			break;
+		case "text/xml":
+		case "text/html":
+		case "text/plist":
+		case "application/xml":
+		case "application/plist":
+		case "application/x-plist":
+			break;
+		case "text/vtt":
+		case "application/vtt":
+			break;
+		case "text/json":
+		case "application/json":
+			body = JSON.parse($response.body ?? "{}");
+			switch (url.pathname) {
+				case "/youtubei/v1/player":
+					if (body?.captions) body.captions = setCaptions(body.captions, Configs.translationLanguages, url.hostname);
+					break;
+				case "/youtubei/v1/get_watch":
+					if (Array.isArray(body?.contents)) {
+						for (const item of body.contents) {
+							if (item?.playerResponse?.captions) {
+								item.playerResponse.captions = setCaptions(item.playerResponse.captions, Configs.translationLanguages, url.hostname);
+							}
+						}
+					} else if (body?.playerResponse?.captions) {
+						body.playerResponse.captions = setCaptions(body.playerResponse.captions, Configs.translationLanguages, url.hostname);
+					}
+					break;
+				case "/youtubei/v1/browse":
+					await translateBrowseLyrics(body, Settings, Languages);
+					break;
+			}
+			$response.body = JSON.stringify(body);
+			break;
+		case "application/protobuf":
+		case "application/x-protobuf":
+		case "application/vnd.google.protobuf":
+		case "application/grpc":
+		case "application/grpc+proto":
+		case "application/octet-stream": {
+			let rawBody = $app === "Quantumult X" ? new Uint8Array($response.bodyBytes ?? []) : ($response.body ?? new Uint8Array());
+			switch (FORMAT) {
+				case "application/protobuf":
+				case "application/x-protobuf":
+				case "application/vnd.google.protobuf": {
+					switch (url.pathname) {
+						case "/youtubei/v1/player": {
+							body = PlayerResponse.fromBinary(rawBody);
+							Console.debug(`body: ${JSON.stringify(body)}`);
+							if (body?.captions) body.captions = setCaptions(body.captions, Configs.translationLanguages, url.hostname);
+							Console.debug(`body: ${JSON.stringify(body)}`);
+							rawBody = PlayerResponse.toBinary(body);
+							break;
+						}
+						case "/youtubei/v1/get_watch": {
+							class get_watch_response$Type extends MessageType {
+								constructor() {
+									super("get_watch_response", [{ no: 1, name: "contents", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => GetWatchResponse }]);
+								}
+								create(value) {
+									const message = globalThis.Object.create(this.messagePrototype);
+									message.contents = [];
+									if (value !== undefined) reflectionMergePartial(this, message, value);
+									return message;
+								}
+								internalBinaryRead(reader, length, options, target) {
+									const message = target ?? this.create(),
+										end = reader.pos + length;
+									while (reader.pos < end) {
+										const [fieldNo, wireType] = reader.tag();
+										switch (fieldNo) {
+											case /* repeated google.protos.youtube.api.innertube.GetWatchResponse contents */ 1:
+												message.contents.push(GetWatchResponse.internalBinaryRead(reader, reader.uint32(), options));
+												break;
+											default:
+												const u = options.readUnknownField;
+												if (u === "throw") throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+												const d = reader.skip(wireType);
+												if (u !== false) (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+										}
+									}
+									return message;
+								}
+								internalBinaryWrite(message, writer, options) {
+									for (let i = 0; i < message.contents.length; i++) GetWatchResponse.internalBinaryWrite(message.contents[i], writer.tag(1, WireType.LengthDelimited).fork(), options).join();
+									const u = options.writeUnknownFields;
+									if (u !== false) (u === true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+									return writer;
+								}
+							}
+							const get_watch_response = new get_watch_response$Type();
+							body = get_watch_response.fromBinary(rawBody);
+							Console.debug(`body: ${JSON.stringify(body)}`);
+							if (Array.isArray(body?.contents)) {
+								for (const content of body.contents) {
+									if (content?.playerResponse?.captions) {
+										content.playerResponse.captions = setCaptions(content.playerResponse.captions, Configs.translationLanguages, url.hostname);
+									}
+								}
+							}
+							Console.debug(`body: ${JSON.stringify(body)}`);
+							rawBody = get_watch_response.toBinary(body);
+							break;
+						}
+						case "/youtubei/v1/browse": {
+							body = BrowseResponse.fromBinary(rawBody);
+							Console.debug(`body: ${JSON.stringify(body)}`);
+							const translated = await translateBrowseLyrics(body, Settings, Languages);
+							if (translated) {
+								rawBody = BrowseResponse.toBinary(body);
+							}
+							break;
+						}
+						case "/youtubei/v1/get_panel": {
+							if (Settings.Types?.includes("Translate") || Type === "Translate") {
+								rawBody = await translateGetPanelLyrics(rawBody, Settings, Languages);
+							}
+							break;
+						}
+					}
+					break;
+				}
+				case "application/grpc":
+				case "application/grpc+proto":
+					break;
+			}
+			// 写入二进制数据
+			$response.body = rawBody;
+			break;
+		}
+	}
+})()
+	.catch(e => Console.error(e))
+	.finally(() => done($response));
+
+async function handleTimedText(url, format, Type, Settings, Caches, Languages) {
+	const kind = url.searchParams.get("kind");
+	if (Type === "Official" || Type === "Composite") {
+		const v = url.searchParams.get("v");
+		const subUrl = new URL(url.toString());
+		const cachedLang = Caches?.Playlists?.Subtitle?.get?.(v);
+		if (typeof cachedLang === "string" && cachedLang) {
+			subUrl.searchParams.set("lang", cachedLang);
+		}
+		subUrl.searchParams.delete("tlang");
+		subUrl.searchParams.delete("subtype");
+		subUrl.searchParams.set("dualsubs_subreq", "1");
+		const requests = [
+			{
+				url: subUrl.toString(),
+				headers: $request.headers,
+			},
+		];
+		// YouTube 官方字幕中 Sub1 为译文(tlang)、Sub2 为原文(lang)，因此合成方向需反转
+		const compositeSettings = {
+			...Settings,
+			Tolerance: Settings.Tolerance || 1000,
+			Position: Settings.Position === "Reverse" ? "Forward" : "Reverse",
+		};
+		const Subtitles = await Promise.all(
+			requests.map(async request => {
+				const _response = await fetch(request);
+				return _response?.body ?? "";
+			}),
+		);
+		const validSub2 = Subtitles.find(s => s && s.trim().length > 0) || "";
+		let activeFormat = format;
+		if ((!activeFormat || !$response?.body?.trim?.()) && validSub2) {
+			activeFormat = detectFormat(url, validSub2, activeFormat);
+		}
+		switch (activeFormat) {
+			case "text/xml":
+			case "text/html":
+			case "text/plist":
+			case "application/xml":
+			case "application/plist":
+			case "application/x-plist": {
+				const rawSub1 = $response?.body ?? "";
+				let body1 = rawSub1.trim() ? XML.parse(rawSub1) : {};
+				const body2 = validSub2 ? XML.parse(validSub2) : {};
+				const hasSub1Cues = Boolean(body1?.timedtext?.body?.p);
+				const hasSub2Cues = Boolean(body2?.timedtext?.body?.p);
+				if (hasSub1Cues && hasSub2Cues && !Settings.ShowOnly) {
+					body1 = new Composite(compositeSettings).timedText(body1, body2, kind);
+					$response.body = XML.stringify(body1);
+				} else if (!hasSub1Cues && hasSub2Cues) {
+					Console.warn("官方翻译字幕返回为空，自动回退至第三方翻译合并原文字幕");
+					$response.body = await translateXmlSubtitles(validSub2, kind, Settings, Languages);
+					$response.status = $app === "Quantumult X" ? "HTTP/1.1 200 OK" : 200;
+				}
+				break;
+			}
+			case "text/vtt":
+			case "application/vtt": {
+				const rawSub1 = $response?.body ?? "";
+				let body1 = rawSub1.trim() ? WebVTT.parse(rawSub1) : {};
+				const body2 = validSub2 ? WebVTT.parse(validSub2) : {};
+				const hasSub1Cues = Array.isArray(body1?.body) && body1.body.length > 0;
+				const hasSub2Cues = Array.isArray(body2?.body) && body2.body.length > 0;
+				if (hasSub1Cues && hasSub2Cues && !Settings.ShowOnly) {
+					body1 = new Composite(compositeSettings).webVTT(body1, body2);
+					$response.body = WebVTT.stringify(body1);
+				} else if (!hasSub1Cues && hasSub2Cues) {
+					$response.body = await translateVttSubtitles(validSub2, Settings, Languages);
+					$response.status = $app === "Quantumult X" ? "HTTP/1.1 200 OK" : 200;
+				}
+				break;
+			}
+			case "text/json":
+			case "application/json": {
+				const rawSub1 = $response?.body ?? "";
+				let body1 = rawSub1.trim() ? JSON.parse(rawSub1) : {};
+				const body2 = validSub2 ? JSON.parse(validSub2) : {};
+				const hasSub1Cues = Array.isArray(body1?.events) && body1.events.length > 0;
+				const hasSub2Cues = Array.isArray(body2?.events) && body2.events.length > 0;
+				if (hasSub1Cues && hasSub2Cues && !Settings.ShowOnly) {
+					body1 = new Composite(compositeSettings).JSON(body1, body2, kind);
+					$response.body = JSON.stringify(body1);
+				} else if (!hasSub1Cues && hasSub2Cues) {
+					$response.body = await translateJsonSubtitles(validSub2, kind, Settings, Languages);
+					$response.status = $app === "Quantumult X" ? "HTTP/1.1 200 OK" : 200;
+				}
+				break;
+			}
+		}
+	} else {
+		const rawBody = $response?.body ?? "";
+		if (!rawBody.trim()) return;
+		const activeFormat = format || detectFormat(url, rawBody);
+		switch (activeFormat) {
+			case "text/xml":
+			case "text/html":
+			case "text/plist":
+			case "application/xml":
+			case "application/plist":
+			case "application/x-plist":
+				$response.body = await translateXmlSubtitles(rawBody, kind, Settings, Languages);
+				break;
+			case "text/vtt":
+			case "application/vtt":
+				$response.body = await translateVttSubtitles(rawBody, Settings, Languages);
+				break;
+			case "text/json":
+			case "application/json":
+				$response.body = await translateJsonSubtitles(rawBody, kind, Settings, Languages);
+				break;
+		}
+	}
+}
+
+async function translateXmlSubtitles(xmlText, kind, Settings, Languages) {
+	const body = XML.parse(xmlText);
+	const isAsr = kind === "asr";
+	if (isAsr) {
+		if (Array.isArray(body?.timedtext?.head?.wp) && body.timedtext.head.wp[1]) {
+			body.timedtext.head.wp[1]["@rc"] = "1";
+		} else if (body?.timedtext?.head?.wp && typeof body.timedtext.head.wp === "object") {
+			body.timedtext.head.wp["@rc"] = "1";
+		}
+	}
+	const rawList = body?.timedtext?.body?.p ? (Array.isArray(body.timedtext.body.p) ? body.timedtext.body.p : [body.timedtext.body.p]) : [];
+	const pList = [];
+	for (const para of rawList) {
+		if (!para || para["@a"] === "1") continue;
+		if (para.s) {
+			if (Array.isArray(para.s)) para["#"] = para.s.map(seg => seg?.["#"] ?? "").join("");
+			else para["#"] = para.s?.["#"] ?? "";
+			delete para.s;
+		}
+		if (typeof para["#"] === "string") para["#"] = para["#"].trim();
+		if (para["#"]) {
+			if (isAsr) delete para["@w"];
+			pList.push(para);
+		}
+	}
+	if (isAsr) {
+		for (let i = 0; i < pList.length - 1; i++) {
+			const t = Number.parseInt(pList[i]["@t"], 10);
+			const d = Number.parseInt(pList[i]["@d"], 10);
+			const nextT = Number.parseInt(pList[i + 1]["@t"], 10);
+			if (!Number.isNaN(t) && !Number.isNaN(d) && !Number.isNaN(nextT) && t + d > nextT) {
+				pList[i]["@d"] = String(Math.max(0, nextT - t));
+			}
+		}
+	}
+	if (pList.length > 0) {
+		const fullText = pList.map(para => decodeHTML(para["#"] || "") || "\u200b");
+		const translation = await translateTextList(fullText, Settings, Languages);
+		pList.forEach((para, i) => {
+			para["#"] = combineText(para["#"], translation?.[i], Settings?.ShowOnly, Settings?.Position, "&#x000A;");
+		});
+		body.timedtext.body.p = pList;
+	}
+	return XML.stringify(body);
+}
+
+async function translateVttSubtitles(vttText, Settings, Languages) {
+	const body = WebVTT.parse(vttText);
+	if (Array.isArray(body?.body) && body.body.length > 0) {
+		const fullText = body.body.map(item => decodeHTML(item?.text || "") || "\u200b");
+		const translation = await translateTextList(fullText, Settings, Languages);
+		body.body.forEach((item, i) => {
+			item.text = combineText(item.text, translation?.[i], Settings?.ShowOnly, Settings?.Position, "\n");
+		});
+	}
+	return WebVTT.stringify(body);
+}
+
+async function translateJsonSubtitles(jsonText, kind, Settings, Languages) {
+	const body = JSON.parse(jsonText);
+	const isAsr = kind === "asr";
+	if (isAsr && body?.wpWinPositions?.[1]) {
+		body.wpWinPositions[1].rcRows = 1;
+	}
+	if (Array.isArray(body?.events)) {
+		const events = [];
+		for (const event of body.events) {
+			if (!event || event.aAppend === 1) continue;
+			if (event.segs) {
+				const text = event.segs.map(seg => seg?.utf8 ?? "").join("").trim();
+				if (!text) continue;
+				event.segs = [{ utf8: text }];
+				if (isAsr) delete event.wWinId;
+				events.push(event);
+			}
+		}
+		if (isAsr) {
+			for (let i = 0; i < events.length - 1; i++) {
+				const t = events[i].tStartMs;
+				const d = events[i].dDurationMs;
+				const nextT = events[i + 1].tStartMs;
+				if (typeof t === "number" && typeof d === "number" && typeof nextT === "number" && t + d > nextT) {
+					events[i].dDurationMs = Math.max(0, nextT - t);
+				}
+			}
+		}
+		const fullText = events.map(e => decodeHTML(e.segs?.[0]?.utf8 || "") || "\u200b");
+		if (fullText.length > 0) {
+			const translation = await translateTextList(fullText, Settings, Languages);
+			events.forEach((event, i) => {
+				event.segs[0].utf8 = combineText(event.segs[0].utf8, translation?.[i], Settings?.ShowOnly, Settings?.Position, "\n");
+			});
+		}
+		body.events = events;
+	}
+	return JSON.stringify(body);
+}
+
+async function translateBrowseLyrics(body, Settings, Languages) {
+	let translated = false;
+	const elementRenderers = [];
+	const shelfRenderers = [];
+
+	const collectFromSectionList = (sectionList) => {
+		if (!Array.isArray(sectionList?.contents)) return;
+		for (const item of sectionList.contents) {
+			if (item?.elementRenderer) elementRenderers.push(item.elementRenderer);
+			if (item?.musicDescriptionShelfRenderer) shelfRenderers.push(item.musicDescriptionShelfRenderer);
+			if (Array.isArray(item?.itemSectionRenderer?.contents)) {
+				for (const sub of item.itemSectionRenderer.contents) {
+					if (sub?.elementRenderer) elementRenderers.push(sub.elementRenderer);
+				}
+			}
+		}
+	};
+
+	if (body?.contents?.elementRenderer) elementRenderers.push(body.contents.elementRenderer);
+	if (body?.contents?.sectionListRenderer) collectFromSectionList(body.contents.sectionListRenderer);
+	if (Array.isArray(body?.contents?.singleColumnBrowseResultsRenderer?.tabs)) {
+		for (const tab of body.contents.singleColumnBrowseResultsRenderer.tabs) {
+			if (tab?.tabRenderer?.content?.sectionListRenderer) {
+				collectFromSectionList(tab.tabRenderer.content.sectionListRenderer);
+			}
+		}
+	}
+	if (body?.continuationContents?.sectionListContinuation) {
+		collectFromSectionList(body.continuationContents.sectionListContinuation);
+	}
+	if (body?.continuationContents?.musicDescriptionShelfRenderer) {
+		shelfRenderers.push(body.continuationContents.musicDescriptionShelfRenderer);
+	}
+
+	for (const elementRenderer of elementRenderers) {
+		const timedLyricsContent = elementRenderer?.newElement?.type?.model?.videoContent?.timedLyricsRender?.timedLyricsContent;
+		if (Array.isArray(timedLyricsContent?.runs) && timedLyricsContent.runs.length > 0) {
+			const fullText = timedLyricsContent.runs.map(run => run?.text?.trim() || "\u200b");
+			const translation = await translateTextList(fullText, Settings, Languages);
+			timedLyricsContent.runs.forEach((run, i) => {
+				if (run?.text) {
+					run.text = combineText(run.text, translation?.[i], Settings?.ShowOnly, Settings?.Position, "\n");
+				}
+			});
+			if (timedLyricsContent.footerLabel && !timedLyricsContent.footerLabel.includes("Translated by")) {
+				timedLyricsContent.footerLabel += ` (Translated by ${Settings?.Vendor || "Google"})`;
+			}
+			translated = true;
+		}
+
+		const lyricsData = elementRenderer?.newElement?.type?.model?.n4F168777401?.n1F465100242?.timedLyricsModel?.lyricsData;
+		if (Array.isArray(lyricsData?.timedLyricsData) && lyricsData.timedLyricsData.length > 0) {
+			const fullText = lyricsData.timedLyricsData.map(item => item?.lyricLine?.trim() || "\u200b");
+			const translation = await translateTextList(fullText, Settings, Languages);
+			lyricsData.timedLyricsData.forEach((item, i) => {
+				if (item?.lyricLine) {
+					item.lyricLine = combineText(item.lyricLine, translation?.[i], Settings?.ShowOnly, Settings?.Position, "\n");
+				}
+			});
+			if (lyricsData.sourceMessage && !lyricsData.sourceMessage.includes("Translated by")) {
+				lyricsData.sourceMessage += ` (Translated by ${Settings?.Vendor || "Google"})`;
+			}
+			translated = true;
+		}
+	}
+
+	for (const shelf of shelfRenderers) {
+		const runs = shelf?.description?.runs;
+		if (Array.isArray(runs) && runs[0]?.text) {
+			const lines = runs[0].text.split("\n");
+			const fullText = lines.map(line => line.trim() || "\u200b");
+			const translation = await translateTextList(fullText, Settings, Languages);
+			runs[0].text = lines
+				.map((line, i) => (line.trim() ? combineText(line, translation?.[i], Settings?.ShowOnly, Settings?.Position, "\n") : ""))
+				.join("\n");
+			if (shelf?.footer?.runs?.[0]?.text && !shelf.footer.runs[0].text.includes("Translated by")) {
+				shelf.footer.runs[0].text += ` (Translated by ${Settings?.Vendor || "Google"})`;
+			}
+			translated = true;
+		}
+	}
+	return translated;
+}
+
+const GET_PANEL_LYRIC_PATHS = [
+	[2, 138681066, 3, 153515154, 172660663, 1, 168777401, 5, 465160965, 4, 1, 1],
+	[2, 138681066, 3, 153515154, 172660663, 1, 168777401, 1, 465100242, 1, 1, 1, 1],
+	[2, 138681066, 3, 153515154, 172660663, 1, 221496734, 1, 1, 1],
+];
+
+async function translateGetPanelLyrics(rawBody, Settings, Languages) {
+	const bytes = rawBody instanceof Uint8Array ? rawBody : new Uint8Array(rawBody ?? []);
+	for (const path of GET_PANEL_LYRIC_PATHS) {
+		const lyrics = extractProtobufText(bytes, path);
+		if (!lyrics.length) continue;
+		Console.info(`YouTube Music get_panel timed lyrics: ${lyrics.length} entries`);
+		if (lyrics.length === 1 && lyrics[0].includes("\n")) {
+			const lines = lyrics[0].split("\n");
+			const fullText = lines.map(line => line.trim() || "\u200b");
+			const translation = await translateTextList(fullText, Settings, Languages);
+			const combinedBlock = lines
+				.map((line, i) => (line.trim() ? combineText(line, translation?.[i], Settings?.ShowOnly, Settings?.Position, "\n") : ""))
+				.join("\n");
+			return replaceProtobufText(bytes, path, [combinedBlock]).body;
+		}
+		const fullText = lyrics.map(line => line.trim() || "\u200b");
+		const translated = await translateTextList(fullText, Settings, Languages);
+		const combined = lyrics.map((origin, index) => combineText(origin, translated?.[index], Settings?.ShowOnly, Settings?.Position, "\n"));
+		return replaceProtobufText(bytes, path, combined).body;
+	}
+	return rawBody;
+}
+
+async function translateTextList(fullText, Settings, Languages) {
+	const vendor = Settings?.Vendor || "Google";
+	const translator = new Translate({ Source: Languages?.[0], Target: Languages?.[1], API: Settings?.API?.[vendor] });
+	const fn = translator[vendor]?.bind(translator) || translator.Google.bind(translator);
+	const Queue = [];
+	const length = vendor === "BaiduFanyi" ? 20 : 100;
+	switch (Settings?.Method) {
+		case "Part":
+		default: {
+			const parts = chunk(fullText, length);
+			for (const part of parts) {
+				Queue.push(() => retry(() => fn(part), Settings?.Times ?? 3, Settings?.Interval ?? 500, Settings?.Exponential ?? true));
+			}
+			break;
+		}
+		case "Row":
+			for (const row of fullText) {
+				Queue.push(() => retry(() => fn(row), Settings?.Times ?? 3, Settings?.Interval ?? 500, Settings?.Exponential ?? true));
+			}
+			break;
+	}
+	return await Promise.all(Queue.map(q => q())).then(results => results.flat());
+}
+
+function combineText(originText, transText, ShowOnly = false, position = "Forward", lineBreak = "\n") {
+	if (!transText || transText === "\u200b") return originText;
+	if (ShowOnly) return transText;
+	return position === "Reverse" ? `${transText}${lineBreak}${originText}` : `${originText}${lineBreak}${transText}`;
+}
+
+function chunk(source, length) {
+	let index = 0;
+	const target = [];
+	while (index < source.length) target.push(source.slice(index, (index += length)));
+	return target;
+}
+
+async function retry(fn, retriesLeft = 3, interval = 500, exponential = true) {
+	try {
+		return await fn();
+	} catch (error) {
+		if (retriesLeft > 0) {
+			await new Promise(r => setTimeout(r, interval));
+			return retry(fn, retriesLeft - 1, exponential ? interval * 2 : interval, exponential);
+		}
+		throw error;
+	}
+}
+
+function decodeHTML(str) {
+	return str
+		.replace(/&apos;/g, "'")
+		.replace(/&quot;/g, '"')
+		.replace(/&gt;/g, ">")
+		.replace(/&lt;/g, "<")
+		.replace(/&amp;/g, "&")
+		.replace(/&nbsp;/g, " ")
+		.replace(/&#39;/g, "'")
+		.replace(/&ldquo;/g, "“")
+		.replace(/&rdquo;/g, "”")
+		.replace(/&#x2f;/g, "/")
+		.replace(/&mdash;/g, "—")
+		.replace(/&hellip;/g, "…")
+		.replace(/&bull;/g, "•")
+		.replace(/&copy;/g, "©")
+		.replace(/%23x2f;/g, "/");
+}

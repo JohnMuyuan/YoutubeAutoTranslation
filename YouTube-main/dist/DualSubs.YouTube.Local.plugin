@@ -1,0 +1,39 @@
+﻿#!name = 馃嵖锔?DualSubs: 鈻讹笍 YouTube (Unified)
+#!desc = YouTube & YouTube Music 澧炲己鍙婂弻璇瓧骞?姝岃瘝浜屽悎涓€鎻掍欢
+#!openUrl = https://dualsubs.github.io/preferences/
+#!author = VirgilClyne[https://github.com/VirgilClyne]
+#!homepage = https://DualSubs.github.io/guide/youtube
+#!icon = https://github.com/DualSubs/YouTube/raw/main/src/assets/icon_rounded.png
+#!tag = 馃嵖锔?DualSubs
+#!system = iOS,iPadOS,macOS
+#!date = 2026-11-07 07:34:03
+#!version = 1.6.0
+#!system_version = 15
+
+[Argument]
+Type = select,"Official","Translate",tag=[瀛楀箷] 鍚敤绫诲瀷,desc=璇烽€夋嫨瑕佷娇鐢ㄧ殑瀛楀箷锛屽弻璇瓧骞曞皢浣跨敤鎮ㄩ€夋嫨绫诲瀷鍛堢幇銆?Types = input,"Translate",tag=[姝岃瘝] 鍚敤绫诲瀷,desc=璇烽€夋嫨瑕佹坊鍔犵殑姝岃瘝閫夐」锛屽鏋滀负澶氶€夛紝鍒欎細鑷姩鍐冲畾鎻愪緵鐨勬瓕璇嶇被鍨嬨€?AutoCC = switch,true,tag=[瀛楀箷] 鑷姩鏄剧ず,desc=鏄惁鎬绘槸鑷姩寮€鍚瓧骞曟樉绀恒€?Languages[0] = select,"AUTO","ZH","ZH-HANS","ZH-HK","ZH-HANT","ZH-TW","EN","EN-US","EN-GB","JA","KO","DE","FR","ES","RU","IT","PT",tag=[瀛楀箷/姝岃瘝] 涓昏瑷€锛堟簮璇█锛?desc=閫夋嫨涓昏瑷€锛堟簮璇█锛夛紝瀛楀箷鍙婃瓕璇嶆簮璇█灏嗚嚜鍔ㄨ瘑鍒垨浣跨敤鎸囧畾璇█銆?Languages[1] = select,"ZH-HANS","ZH","ZH-HK","ZH-HANT","ZH-TW","EN","EN-US","EN-GB","JA","KO","DE","FR","ES","RU","IT","PT",tag=[瀛楀箷/姝岃瘝] 鍓瑷€锛堢洰鏍囪瑷€锛?desc=閫夋嫨闇€瑕佺炕璇戞垚鐨勭洰鏍囪瑷€锛堥粯璁や腑鏂囩畝浣擄級銆?Position = select,"Forward","Reverse",tag=[瀛楀箷] 涓昏瑷€锛堟簮璇█锛夊瓧骞曚綅缃?desc=涓昏瑷€锛堟簮璇█锛夊瓧骞曠殑鏄剧ず浣嶇疆銆?Vendor = select,"Google","Microsoft","DeepL",tag=[缈昏瘧鍣╙ 鏈嶅姟鍟咥PI,desc=璇烽€夋嫨缈昏瘧鍣ㄦ墍浣跨敤鐨勬湇鍔″晢API锛屾洿澶氱炕璇戦€夐」璇蜂娇鐢˙oxJs銆?ShowOnly = switch,false,tag=[缈昏瘧鍣╙ 鍙樉绀衡€滆嚜鍔ㄧ炕璇戔€濆瓧骞?desc=鏄惁浠呮樉绀衡€滆嚜鍔ㄧ炕璇戔€濆瓧骞曪紝涓嶆樉绀烘簮璇█瀛楀箷銆?Storage = select,"PersistentStore","Argument","database",tag=[鍌ㄥ瓨] 閰嶇疆绫诲瀷,desc=榛樿浼樺厛浣跨敤璁剧疆闈㈡澘鎴?BoxJS 淇濆瓨鐨勯厤缃紝鍏舵浣跨敤鎻掍欢閰嶇疆锛屾渶鍚庝娇鐢ㄨ剼鏈粯璁ら厤缃€?LogLevel = select,"WARN","OFF","ERROR","INFO","DEBUG","ALL",tag=[璋冭瘯] 鏃ュ織绛夌骇,desc=閫夋嫨鑴氭湰鏃ュ織鐨勮緭鍑虹瓑绾э紝浣庝簬鎵€閫夌瓑绾х殑鏃ュ織灏嗗叏閮ㄨ緭鍑恒€?
+[Rewrite]
+response if ${url} ~= /^https:\/\/dualsubs\.github\.io\/api\/YouTube(?:\?.*)?$/i then response.body.mock_file("json", "https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/DualSubs.YouTube.PreferencePanes.json", 200) | response.header.add(["X-PreferencePanes-Version", "Cache-Control"], ["1.6.0", "no-store"])
+# 鎷︽埅 Onesie initplayback 璇锋眰浠ヨЕ鍙戞爣鍑嗗瓧骞曞姞杞芥祦绋?^https?:\/\/([\w-]+)\.googlevideo\.com\/initplayback(\?.*(oad|ack)=.+)$ reject-200
+
+[Script]
+http-request ^https:\/\/dualsubs\.github\.io\/api\/(?:get|set|delete)(?:\?.*)?$ requires-body=1, script-path=https://github.com/NSNanoCat/PreferencePanes/releases/download/v1.3.1/api.js, tag=PreferencePanes.API
+# YouTube Player & GetWatch
+http-request ^https?:\/\/(www|m|tv)\.youtube\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, script-path=request.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.request.json, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-response ^https?:\/\/(www|m|tv)\.youtube\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.response.json, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-request ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=request.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.request.proto, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-response ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.response.proto, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-response ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/get_watch(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTube.GetWatch.response.proto, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+# YouTube TimedText (鍚堟垚鍙岃瀛楀箷 & 缈昏瘧鍙岃瀛楀箷鍚堜簩涓轰竴)
+http-request ^https?:\/\/(www|m|music)\.youtube\.com\/api\/timedtext(\?.+)?$ script-path=request.bundle.js, tag=馃嵖锔?DualSubs.YouTube.TimedText.request, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-response ^https?:\/\/(www|m|music)\.youtube\.com\/api\/timedtext\?(.*)subtype=(Official|Composite|Translate|External) requires-body=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTube.TimedText.response, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+
+# YouTube Music Lyrics (Browse & GetPanel 鍙岃姝岃瘝鍚堜簩涓轰竴)
+http-request ^https?:\/\/music\.youtube\.com\/youtubei\/v1\/browse(\?.+)?$ requires-body=1, script-path=request.bundle.js, tag=馃嵖锔?DualSubs.YouTubeMusic.Browse.request.json, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-request ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/browse(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=request.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Browse.request.proto, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-response ^https?:\/\/music\.youtube\.com\/youtubei\/v1\/browse\?(.*)subtype=Translate requires-body=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTubeMusic.Translate.Lyrics.response.json, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-response ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/browse\?(.*)subtype=Translate requires-body=1, binary-body-mode=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTubeMusic.Translate.Lyrics.response.proto, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-response ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/get_panel(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTubeMusic.GetPanel.Translate.Lyrics.response.proto, argument=[{Type},{Types},{AutoCC},{Languages[0]},{Languages[1]},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+
+[MITM]
+hostname = dualsubs.github.io, www.youtube.com, m.youtube.com, tv.youtube.com, music.youtube.com, youtubei.googleapis.com, -redirector*.googlevideo.com, *.googlevideo.com

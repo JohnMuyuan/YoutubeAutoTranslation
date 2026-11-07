@@ -1,0 +1,12 @@
+### 🆕 New Features
+  * 新增官网在线设置首页入口，由 YouTube 模块独立提供配置与本机存储 API。
+
+### 🐛 Bug Fixes
+  * 修复单独安装本模块时偏好面板缺少存储 API、无法读取或保存配置的问题。
+  * 修复 YouTube App 的 `tlang` 翻译字幕请求可能返回 529、无法显示双语字幕的问题；保留已有 Cookie 的 Web 请求头。
+
+### 🔄 Other Changes
+  * 各平台代理工具的偏好面板入口统一为 `https://dualsubs.github.io/preferences/`。
+  * 新增 `Storage` 参数，默认 `PersistentStore`，优先使用设置面板或 BoxJS 保存的配置，仍可切换为插件配置优先或仅使用默认配置。
+  * 前端从官网在线加载，插件不再通过 BoxJS 地址打开设置。
+  * 开发版模块显示实际构建版本，便于确认更新。

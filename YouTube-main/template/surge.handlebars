@@ -1,0 +1,38 @@
+#!name = {{@package 'displayName'}}
+#!desc = {{inline (@package 'description')}}
+#!openUrl = {{@package 'openUrl'}}
+#!author = {{@package 'contributors'}}
+#!homepage = {{@package 'homepage'}}
+#!icon = {{@package 'icon'}}
+#!category = {{@package 'organizationName'}}
+#!date = {{now "yyyy-MM-dd HH:mm:ss"}}
+#!version = {{@package 'version'}}
+#!arguments = {{{arguments}}}
+#!arguments-desc = {{{argumentsDesc}}}
+
+[Rule]
+URL-REGEX,^https?:\/\/([\w-]+)\.googlevideo\.com\/initplayback(\?.*(oad|ack)=.+)$,REJECT-TINYGIF
+
+[Map Local]
+^https:\/\/dualsubs\.github\.io\/api\/YouTube(?:\?.*)?$ data-type=file data="https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/DualSubs.YouTube.PreferencePanes.json" status-code=200 header="Content-Type:application/json; charset=utf-8|Cache-Control:no-store|X-PreferencePanes-Version:{{@package 'version'}}"
+
+[Script]
+PreferencePanes.API = type=http-request, pattern=^https:\/\/dualsubs\.github\.io\/api\/(?:get|set|delete)(?:\?.*)?$, requires-body=1, max-size=65536, script-path=https://github.com/NSNanoCat/PreferencePanes/releases/download/v1.3.1/api.js
+# YouTube
+🍿️ DualSubs.YouTube.Player.request.json = type=http-request, pattern=^https?:\/\/(www|m|tv)\.youtube\.com\/youtubei\/v1\/player(\?.+)?$, requires-body=1, engine=webview, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/request.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTube.Player.response.json = type=http-response, pattern=^https?:\/\/(www|m|tv)\.youtube\.com\/youtubei\/v1\/player(\?.+)?$, requires-body=1, engine=webview, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/response.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTube.Player.request.proto = type=http-request, pattern=^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/player(\?.+)?$, requires-body=1, binary-body-mode=1, engine=webview, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/request.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTube.Player.response.proto = type=http-response, pattern=^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/player(\?.+)?$, requires-body=1, binary-body-mode=1, engine=webview, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/response.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTube.GetWatch.response.proto = type=http-response, pattern=^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/get_watch(\?.+)?$, requires-body=1, binary-body-mode=1, engine=webview, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/response.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTube.TimedText.request = type=http-request, pattern=^https?:\/\/(www|m|music)\.youtube\.com\/api\/timedtext(\?.+)?$, engine=webview, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/request.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTube.TimedText.response = type=http-response, pattern=^https?:\/\/(www|m|music)\.youtube\.com\/api\/timedtext\?(.*)subtype=(Official|Composite|Translate|External), requires-body=1, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/response.bundle.js, argument={{{scriptParams}}}
+
+# YouTube Music
+🍿️ DualSubs.YouTubeMusic.Browse.request.json = type=http-request, pattern=^https?:\/\/music\.youtube\.com\/youtubei\/v1\/browse(\?.+)?$, requires-body=1, engine=webview, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/request.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTube.Browse.request.proto = type=http-request, pattern=^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/browse(\?.+)?$, requires-body=1, binary-body-mode=1, engine=webview, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/request.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTubeMusic.Translate.Lyrics.response.json = type=http-response, pattern=^https?:\/\/music\.youtube\.com\/youtubei\/v1\/browse\?(.*)subtype=Translate, requires-body=1, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/response.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTubeMusic.Translate.Lyrics.response.proto = type=http-response, pattern=^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/browse\?(.*)subtype=Translate, requires-body=1, binary-body-mode=1, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/response.bundle.js, argument={{{scriptParams}}}
+🍿️ DualSubs.YouTubeMusic.GetPanel.Translate.Lyrics.response.proto = type=http-response, pattern=^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/get_panel(\?.+)?$, requires-body=1, binary-body-mode=1, script-path=https://raw.githubusercontent.com/JohnMuyuan/YoutubeAutoTranslation/main/dist/response.bundle.js, argument={{{scriptParams}}}
+
+[MITM]
+hostname = %APPEND% dualsubs.github.io, www.youtube.com, m.youtube.com, tv.youtube.com, music.youtube.com, youtubei.googleapis.com, -redirector*.googlevideo.com, *.googlevideo.com
