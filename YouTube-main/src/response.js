@@ -545,19 +545,24 @@ async function translateBrowseLyrics(body, Settings, Languages) {
 	return translated;
 }
 
-const GET_PANEL_LYRIC_PATHS = [
-	[2, 138681066, 3, 153515154, 172660663, 1, 168777401, 5, 465160965, 4, 1, 1],
-	[2, 138681066, 3, 153515154, 172660663, 1, 168777401, 1, 465100242, 1, 1, 1, 1],
-	[2, 138681066, 3, 153515154, 172660663, 1, 221496734, 1, 1, 1],
-];
-
-const LYRIC_SUFFIX_PATHS = [
-	[465160965, 4, 1, 1],
-	[465100242, 1, 1, 1, 1],
-	[221496734, 1, 1, 1],
-];
-
 async function translateGetPanelLyrics(rawBody, Settings, Languages) {
+	const GET_PANEL_LYRIC_PATHS = [
+		[2, 138681066, 3, 153515154, 172660663, 1, 168777401, 5, 465160965, 4, 1, 1],
+		[2, 138681066, 3, 153515154, 172660663, 1, 168777401, 4, 465100242, 1, 1, 1, 1],
+		[2, 138681066, 3, 153515154, 172660663, 1, 168777401, 1, 465100242, 1, 1, 1, 1],
+		[2, 138681066, 3, 153515154, 172660663, 1, 221496734, 1, 1, 1],
+		[2, 138681066, 3, 221496734, 3, 1, 1],
+	];
+
+	const LYRIC_SUFFIX_PATHS = [
+		[465160965, 4, 1, 1],
+		[465160965, 1, 1],
+		[465100242, 1, 1, 1, 1],
+		[465100242, 1, 1, 1],
+		[221496734, 3, 1, 1],
+		[221496734, 1, 1, 1],
+	];
+
 	const bytes = rawBody instanceof Uint8Array ? rawBody : new Uint8Array(rawBody ?? []);
 	for (const path of GET_PANEL_LYRIC_PATHS) {
 		const lyrics = extractProtobufText(bytes, path);
