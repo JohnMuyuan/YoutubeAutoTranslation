@@ -226,7 +226,9 @@ export async function translateBrowseLyrics(body, Settings, Languages) {
 			translated = true;
 		}
 
-		const lyricsData = elementRenderer?.newElement?.type?.model?.n4F168777401?.n1F465100242?.timedLyricsModel?.lyricsData;
+		const lyricsData =
+			elementRenderer?.newElement?.type?.model?.n4F168777401?.n1F465100242?.timedLyricsModel?.lyricsData ??
+			elementRenderer?.newElement?.type?.componentType?.model?.timedLyricsModel?.lyricsData;
 		if (Array.isArray(lyricsData?.timedLyricsData) && lyricsData.timedLyricsData.length > 0) {
 			const fullText = lyricsData.timedLyricsData.map(item => item?.lyricLine?.trim() || "\u200b");
 			const translation = await translateTextList(fullText, Settings, Languages);

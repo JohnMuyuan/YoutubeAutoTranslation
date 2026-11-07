@@ -142,7 +142,7 @@ export function extractProtobufTextBySuffix(bytes, suffixPath) {
 		const parsed = tryFields(message);
 		if (!parsed) return;
 		for (const field of parsed) {
-			if (field.wire !== 2) continue;
+			if (field.wire !== 2 || (depth === 0 && field.field === 777)) continue;
 			const payload = message.subarray(field.payloadStart, field.payloadEnd);
 			if (field.field === anchor) {
 				try {
@@ -168,7 +168,7 @@ export function replaceProtobufTextBySuffix(bytes, suffixPath, replacements) {
 		let changed = false;
 		const chunks = [];
 		for (const field of parsed) {
-			if (field.wire !== 2) {
+			if (field.wire !== 2 || (depth === 0 && field.field === 777)) {
 				chunks.push(message.subarray(field.start, field.end));
 				continue;
 			}

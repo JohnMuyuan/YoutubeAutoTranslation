@@ -6,8 +6,8 @@
 #!icon = https://github.com/DualSubs/YouTube/raw/main/src/assets/icon_rounded.png
 #!tag = 馃嵖锔?DualSubs
 #!system = iOS,iPadOS,macOS
-#!date = 2026-11-07 08:05:46
-#!version = 1.6.1
+#!date = 2026-11-07 08:20:29
+#!version = 1.6.2
 #!system_version = 15
 
 [Argument]
@@ -24,8 +24,8 @@ AND,((DOMAIN-SUFFIX,youtube.com),(PROTOCOL,UDP)),REJECT
 [Script]
 http-request ^https:\/\/dualsubs\.github\.io\/api\/(?:get|set|delete)(?:\?.*)?$ requires-body=1, script-path=https://github.com/NSNanoCat/PreferencePanes/releases/download/v1.3.1/api.js, tag=PreferencePanes.API
 # YouTube Player & GetWatch
-http-request ^https?:\/\/(www|m|tv)\.youtube\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, script-path=request.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.request.json, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
-http-response ^https?:\/\/(www|m|tv)\.youtube\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.response.json, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-request ^https?:\/\/(www|m|tv|music)\.youtube\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, script-path=request.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.request.json, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-response ^https?:\/\/(www|m|tv|music)\.youtube\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.response.json, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
 http-request ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=request.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.request.proto, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
 http-response ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/player(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTube.Player.response.proto, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
 http-response ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/get_watch(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTube.GetWatch.response.proto, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
@@ -39,6 +39,7 @@ http-request ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/browse(\?.+)?$
 http-response ^https?:\/\/music\.youtube\.com\/youtubei\/v1\/browse(\?.+)?$ requires-body=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTubeMusic.Translate.Lyrics.response.json, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
 http-response ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/browse(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTubeMusic.Translate.Lyrics.response.proto, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
 http-response ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/get_panel(\?.+)?$ requires-body=1, binary-body-mode=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTubeMusic.GetPanel.Translate.Lyrics.response.proto, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
+http-response ^https?:\/\/music\.youtube\.com\/youtubei\/v1\/get_panel(\?.+)?$ requires-body=1, script-path=response.bundle.js, tag=馃嵖锔?DualSubs.YouTubeMusic.GetPanel.Translate.Lyrics.response.json, argument=[{Type},{Types},{AutoCC},{Source},{Target},{Position},{Vendor},{ShowOnly},{Storage},{LogLevel}]
 
 [MITM]
 hostname = dualsubs.github.io, www.youtube.com, m.youtube.com, tv.youtube.com, music.youtube.com, youtubei.googleapis.com, -redirector*.googlevideo.com, *.googlevideo.com

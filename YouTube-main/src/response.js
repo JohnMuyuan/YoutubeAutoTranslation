@@ -93,6 +93,7 @@ Console.info(`FORMAT: ${FORMAT}`);
 					}
 					break;
 				case "/youtubei/v1/browse":
+				case "/youtubei/v1/get_panel":
 					await translateBrowseLyrics(body, Settings, Languages);
 					break;
 			}
@@ -108,7 +109,8 @@ Console.info(`FORMAT: ${FORMAT}`);
 			switch (FORMAT) {
 				case "application/protobuf":
 				case "application/x-protobuf":
-				case "application/vnd.google.protobuf": {
+				case "application/vnd.google.protobuf":
+				case "application/octet-stream": {
 					switch (url.pathname) {
 						case "/youtubei/v1/player": {
 							body = PlayerResponse.fromBinary(rawBody);
@@ -507,7 +509,9 @@ async function translateBrowseLyrics(body, Settings, Languages) {
 			translated = true;
 		}
 
-		const lyricsData = elementRenderer?.newElement?.type?.model?.n4F168777401?.n1F465100242?.timedLyricsModel?.lyricsData;
+		const lyricsData =
+			elementRenderer?.newElement?.type?.model?.n4F168777401?.n1F465100242?.timedLyricsModel?.lyricsData ??
+			elementRenderer?.newElement?.type?.componentType?.model?.timedLyricsModel?.lyricsData;
 		if (Array.isArray(lyricsData?.timedLyricsData) && lyricsData.timedLyricsData.length > 0) {
 			const fullText = lyricsData.timedLyricsData.map(item => item?.lyricLine?.trim() || "\u200b");
 			const translation = await translateTextList(fullText, Settings, Languages);
