@@ -263,6 +263,25 @@ export async function translateBrowseLyrics(body, Settings, Languages) {
 }
 
 async function translateTextList(fullText, Settings, Languages) {
+	if (!Array.isArray(fullText) || fullText.length === 0) return [];
+	const uniqueTexts = [];
+	const textToUniqueIndex = new Map();
+	const indexMap = new Array(fullText.length);
+	for (let i = 0; i < fullText.length; i++) {
+		const raw = typeof fullText[i] === "string" ? fullText[i].trim() : "";
+		if (!raw || raw === "\u200b" || raw === "\u200B") {
+			indexMap[i] = -1;
+			continue;
+		}
+		let uIdx = textToUniqueIndex.get(raw);
+		if (uIdx === undefined) {
+			uIdx = uniqueTexts.length;
+			textToUniqueIndex.set(raw, uIdx);
+			uniqueTexts.push(raw);
+		}
+		indexMap[i] = uIdx;
+	}
+	if (uniqueTexts.length === 0) return fullText.map(() => "");
 	const vendor = Settings?.Vendor || "Google";
 	const translator = new Translate({ Source: Languages?.[0], Target: Languages?.[1], API: Settings?.API?.[vendor] });
 	const fn = translator[vendor]?.bind(translator) || translator.Google.bind(translator);
@@ -271,19 +290,20 @@ async function translateTextList(fullText, Settings, Languages) {
 	switch (Settings?.Method) {
 		case "Part":
 		default: {
-			const parts = chunk(fullText, length);
+			const parts = chunk(uniqueTexts, length);
 			for (const part of parts) {
 				Queue.push(() => retry(() => fn(part), Settings?.Times ?? 3, Settings?.Interval ?? 500, Settings?.Exponential ?? true));
 			}
 			break;
 		}
 		case "Row":
-			for (const row of fullText) {
+			for (const row of uniqueTexts) {
 				Queue.push(() => retry(() => fn(row), Settings?.Times ?? 3, Settings?.Interval ?? 500, Settings?.Exponential ?? true));
 			}
 			break;
 	}
-	return await Promise.all(Queue.map(q => q())).then(results => results.flat());
+	const uniqueTranslations = await Promise.all(Queue.map(q => q())).then(results => results.flat());
+	return indexMap.map(uIdx => (uIdx === -1 ? "" : (uniqueTranslations[uIdx] ?? "")));
 }
 
 function combineText(originText, transText, ShowOnly = false, position = "Forward", lineBreak = "\n") {

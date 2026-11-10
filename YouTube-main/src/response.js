@@ -372,6 +372,29 @@ async function translateXmlSubtitles(xmlText, kind, Settings, Languages) {
 		}
 	}
 	const rawList = body?.timedtext?.body?.p ? (Array.isArray(body.timedtext.body.p) ? body.timedtext.body.p : [body.timedtext.body.p]) : [];
+	const rawPens = body?.timedtext?.head?.pen
+		? (Array.isArray(body.timedtext.head.pen) ? body.timedtext.head.pen : [body.timedtext.head.pen])
+		: [];
+	const penMap = new Map();
+	for (const pen of rawPens) {
+		if (pen && pen["@id"] !== undefined) {
+			penMap.set(String(pen["@id"]), pen);
+		}
+	}
+	const isStyledXml =
+		!isAsr &&
+		(penMap.size > 0 ||
+			rawList.some(
+				p =>
+					p?.["@p"] !== undefined ||
+					p?.["@wp"] !== undefined ||
+					(Array.isArray(p?.s) ? p.s.some(s => s?.["@p"] !== undefined) : p?.s?.["@p"] !== undefined),
+			));
+	if (isStyledXml) {
+		await translateStyledXmlParagraphs(rawList, penMap, Settings, Languages);
+		body.timedtext.body.p = rawList;
+		return XML.stringify(body).replace(/&amp;#x000A;/g, "&#x000A;");
+	}
 	const pList = [];
 	for (const para of rawList) {
 		if (!para || para["@a"] === "1") continue;
@@ -407,6 +430,234 @@ async function translateXmlSubtitles(xmlText, kind, Settings, Languages) {
 	return XML.stringify(body).replace(/&amp;#x000A;/g, "&#x000A;");
 }
 
+async function translateStyledXmlParagraphs(rawList, penMap, Settings, Languages) {
+	const getPenFo = penId => {
+		if (penId === undefined || penId === null) return 254;
+		const pen = penMap.get(String(penId));
+		if (!pen || pen["@fo"] === undefined) return 254;
+		const fo = Number.parseInt(pen["@fo"], 10);
+		return Number.isNaN(fo) ? 254 : fo;
+	};
+	const getPenRb = penId => {
+		if (penId === undefined || penId === null) return 0;
+		const pen = penMap.get(String(penId));
+		if (!pen || pen["@rb"] === undefined) return 0;
+		return Number.parseInt(pen["@rb"], 10) || 0;
+	};
+
+	let defaultHiddenPenId = null;
+	if (penMap.has("1") && getPenFo("1") === 0) {
+		defaultHiddenPenId = "1";
+	} else if (penMap.has("0") && getPenFo("0") === 0) {
+		defaultHiddenPenId = "0";
+	} else {
+		for (const [id, pen] of penMap.entries()) {
+			if (getPenFo(id) === 0 && Number.parseInt(pen["@bo"] ?? "0", 10) === 0 && !pen["@rb"]) {
+				defaultHiddenPenId = id;
+				break;
+			}
+		}
+	}
+
+	const stripZwsp = str => String(str ?? "").replace(/\u200B \u200B/g, "").replace(/\u200B/g, "");
+	const tasks = [];
+	const textsToTranslate = [];
+
+	for (const para of rawList) {
+		if (!para || para["@a"] === "1") continue;
+		const hasS = para.s !== undefined;
+		const rawSegs = hasS
+			? (Array.isArray(para.s) ? para.s : [para.s])
+			: typeof para["#"] === "string" && para["#"].length > 0
+				? [{ ...(para["@p"] !== undefined ? { "@p": String(para["@p"]) } : {}), "#": para["#"] }]
+				: [];
+		if (rawSegs.length === 0) continue;
+
+		const subLines = [[]];
+		const lineBreakSegs = [];
+		for (const seg of rawSegs) {
+			if (!seg) continue;
+			const rawStr = String(seg["#"] ?? "");
+			if (!rawStr.includes("\n")) {
+				subLines[subLines.length - 1].push({ ...seg, "#": rawStr });
+				continue;
+			}
+			const cleanedNoNewline = stripZwsp(rawStr).replace(/[\r\n]+/g, "").trim();
+			if (cleanedNoNewline === "") {
+				lineBreakSegs.push({ ...seg, "#": rawStr.replace(/\r?\n/g, "&#x000A;") });
+				subLines.push([]);
+			} else {
+				const parts = rawStr.split(/\r?\n/);
+				for (let pIdx = 0; pIdx < parts.length; pIdx++) {
+					if (parts[pIdx].length > 0) {
+						subLines[subLines.length - 1].push({ ...seg, "#": parts[pIdx] });
+					}
+					if (pIdx < parts.length - 1) {
+						const lbPen = defaultHiddenPenId ?? seg["@p"] ?? para["@p"];
+						lineBreakSegs.push({ ...(lbPen !== undefined && lbPen !== null ? { "@p": String(lbPen) } : {}), "#": "&#x000A;" });
+						subLines.push([]);
+					}
+				}
+			}
+		}
+
+		let paraHasVisible = false;
+		const parsedSubLines = subLines.map(lineSegs => {
+			let hasVisible = false;
+			let firstContentIdx = -1;
+			let lastContentIdx = -1;
+			let rawSentence = "";
+			let usesPaddingSpace = false;
+			let usesZwsp = false;
+			let lineHiddenPenId = null;
+			const penLengths = new Map();
+			let fallbackNonRubyPenId;
+			let fallbackVisiblePenId;
+
+			for (let i = 0; i < lineSegs.length; i++) {
+				const s = lineSegs[i];
+				const rawText = String(s["#"] ?? "");
+				if (rawText.includes("\u200B \u200B")) usesPaddingSpace = true;
+				if (rawText.includes("\u200B")) usesZwsp = true;
+				const cleanText = stripZwsp(rawText);
+				const effPenId = s["@p"] ?? para["@p"];
+				const fo = getPenFo(effPenId);
+				const rb = getPenRb(effPenId);
+
+				if (fo === 0 && cleanText.length === 0 && effPenId !== undefined && lineHiddenPenId === null) {
+					lineHiddenPenId = String(effPenId);
+				}
+				if (fo > 0 && effPenId !== undefined) {
+					if (fallbackVisiblePenId === undefined) fallbackVisiblePenId = String(effPenId);
+					if (rb === 0 && fallbackNonRubyPenId === undefined) fallbackNonRubyPenId = String(effPenId);
+				}
+				if (cleanText.length > 0) {
+					if (firstContentIdx === -1) firstContentIdx = i;
+					lastContentIdx = i;
+					if (![2, 4, 5].includes(rb)) {
+						rawSentence += cleanText;
+					}
+					const trimmedLen = cleanText.trim().length;
+					if (fo > 0 && trimmedLen > 0) {
+						hasVisible = true;
+						if (effPenId !== undefined && rb === 0) {
+							const key = String(effPenId);
+							penLengths.set(key, (penLengths.get(key) ?? 0) + trimmedLen);
+						}
+					}
+				}
+			}
+
+			const sentence = decodeHTML(rawSentence.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim());
+			if (!hasVisible || !sentence) {
+				return { isVisible: false, lineSegs };
+			}
+			paraHasVisible = true;
+
+			let dominantPenId;
+			let maxLen = -1;
+			for (const [penId, len] of penLengths.entries()) {
+				if (len > maxLen) {
+					maxLen = len;
+					dominantPenId = penId;
+				}
+			}
+			if (dominantPenId === undefined) {
+				dominantPenId = fallbackNonRubyPenId ?? fallbackVisiblePenId ?? (para["@p"] !== undefined ? String(para["@p"]) : undefined);
+			}
+
+			const textIdx = textsToTranslate.length;
+			textsToTranslate.push(sentence);
+
+			return {
+				isVisible: true,
+				lineSegs,
+				firstContentIdx,
+				lastContentIdx,
+				textIdx,
+				dominantPenId,
+				hiddenPenId: lineHiddenPenId ?? defaultHiddenPenId,
+				usesPaddingSpace,
+				usesZwsp: usesZwsp || lineHiddenPenId !== null || defaultHiddenPenId !== null,
+			};
+		});
+
+		if (paraHasVisible) {
+			tasks.push({ para, hasS, parsedSubLines, lineBreakSegs });
+		}
+	}
+
+	if (textsToTranslate.length === 0) return;
+	const translations = await translateTextList(textsToTranslate, Settings, Languages);
+
+	for (const { para, hasS, parsedSubLines, lineBreakSegs } of tasks) {
+		const newSegs = [];
+		for (let sIdx = 0; sIdx < parsedSubLines.length; sIdx++) {
+			const sub = parsedSubLines[sIdx];
+			if (!sub.isVisible) {
+				newSegs.push(...sub.lineSegs);
+			} else {
+				const transText = translations[sub.textIdx] ?? "";
+				if (!transText || transText === "\u200b") {
+					newSegs.push(...sub.lineSegs);
+				} else {
+					const leadingPadding = sub.lineSegs.slice(0, sub.firstContentIdx);
+					const contentSegs = sub.lineSegs.slice(sub.firstContentIdx, sub.lastContentIdx + 1);
+					const trailingPadding = sub.lineSegs.slice(sub.lastContentIdx + 1);
+					const formattedTrans = sub.usesPaddingSpace ? `\u200B \u200B${transText}\u200B \u200B` : transText;
+					const transSeg = {
+						...(sub.dominantPenId !== undefined ? { "@p": String(sub.dominantPenId) } : {}),
+						"#": formattedTrans,
+					};
+					const sepPenId = sub.hiddenPenId ?? sub.dominantPenId;
+					const sepSeg = {
+						...(sepPenId !== undefined && sepPenId !== null ? { "@p": String(sepPenId) } : {}),
+						"#": sub.usesZwsp ? "\u200B&#x000A;\u200B" : "&#x000A;",
+					};
+					if (Settings?.ShowOnly) {
+						newSegs.push(...leadingPadding, transSeg, ...trailingPadding);
+					} else if (Settings?.Position === "Reverse") {
+						newSegs.push(...leadingPadding, transSeg, sepSeg, ...contentSegs, ...trailingPadding);
+					} else {
+						newSegs.push(...leadingPadding, ...contentSegs, sepSeg, transSeg, ...trailingPadding);
+					}
+				}
+			}
+			if (sIdx < lineBreakSegs.length) {
+				newSegs.push(lineBreakSegs[sIdx]);
+			}
+		}
+
+		para.s = newSegs;
+		if (!hasS) {
+			delete para["@p"];
+			para["#"] = "\u200B";
+		}
+		const xmlOrderSym = Object.getOwnPropertySymbols(para)[0];
+		if (xmlOrderSym && Array.isArray(para[xmlOrderSym])) {
+			const oldOrder = para[xmlOrderSym];
+			let hashAfterS = 0;
+			for (let i = 0; i < oldOrder.length; i++) {
+				if (oldOrder[i]?.[0] === "#" && i > 0 && oldOrder[i - 1]?.[0] === "s") {
+					hashAfterS = oldOrder[i - 1][1];
+					break;
+				}
+			}
+			if (typeof para["#"] !== "string" && newSegs.length > 1) {
+				para["#"] = "\u200B";
+			}
+			const newOrder = [];
+			for (let idx = 0; idx < newSegs.length; idx++) {
+				newOrder.push(["s", idx]);
+				if (idx === hashAfterS && typeof para["#"] === "string") {
+					newOrder.push(["#", 0]);
+				}
+			}
+			para[xmlOrderSym].splice(0, para[xmlOrderSym].length, ...newOrder);
+		}
+	}
+}
+
 async function translateVttSubtitles(vttText, Settings, Languages) {
 	const body = WebVTT.parse(vttText);
 	if (Array.isArray(body?.body) && body.body.length > 0) {
@@ -426,6 +677,20 @@ async function translateJsonSubtitles(jsonText, kind, Settings, Languages) {
 		body.wpWinPositions[1].rcRows = 1;
 	}
 	if (Array.isArray(body?.events)) {
+		const rawPens = Array.isArray(body?.pens) ? body.pens : [];
+		const isStyledJson =
+			!isAsr &&
+			(rawPens.length > 0 ||
+				body.events.some(
+					e =>
+						e?.pPenId !== undefined ||
+						e?.wpWinPosId !== undefined ||
+						(Array.isArray(e?.segs) && e.segs.some(s => s?.pPenId !== undefined)),
+				));
+		if (isStyledJson) {
+			await translateStyledJsonEvents(body.events, rawPens, Settings, Languages);
+			return JSON.stringify(body);
+		}
 		const events = [];
 		for (const event of body.events) {
 			if (!event || event.aAppend === 1) continue;
@@ -457,6 +722,200 @@ async function translateJsonSubtitles(jsonText, kind, Settings, Languages) {
 		body.events = events;
 	}
 	return JSON.stringify(body);
+}
+
+async function translateStyledJsonEvents(events, rawPens, Settings, Languages) {
+	const getPenFo = penId => {
+		const idx = Number(penId ?? 0);
+		const pen = rawPens[idx];
+		if (!pen || pen.foForeAlpha === undefined) return 254;
+		const fo = Number(pen.foForeAlpha);
+		return Number.isNaN(fo) ? 254 : fo;
+	};
+	const getPenRb = penId => {
+		const idx = Number(penId ?? 0);
+		const pen = rawPens[idx];
+		if (!pen || pen.rbRuby === undefined) return 0;
+		return Number(pen.rbRuby) || 0;
+	};
+
+	let defaultHiddenPenId = null;
+	if (rawPens[1] && getPenFo(1) === 0) {
+		defaultHiddenPenId = 1;
+	} else if (rawPens[0] && getPenFo(0) === 0) {
+		defaultHiddenPenId = 0;
+	} else {
+		for (let i = 0; i < rawPens.length; i++) {
+			if (rawPens[i] && getPenFo(i) === 0 && !rawPens[i].boBackAlpha && !rawPens[i].rbRuby) {
+				defaultHiddenPenId = i;
+				break;
+			}
+		}
+	}
+
+	const stripZwsp = str => String(str ?? "").replace(/\u200B \u200B/g, "").replace(/\u200B/g, "");
+	const tasks = [];
+	const textsToTranslate = [];
+
+	for (const event of events) {
+		if (!event || event.aAppend === 1 || !Array.isArray(event.segs) || event.segs.length === 0) continue;
+
+		const subLines = [[]];
+		const lineBreakSegs = [];
+		for (const seg of event.segs) {
+			if (!seg) continue;
+			const rawStr = String(seg.utf8 ?? "");
+			if (!rawStr.includes("\n")) {
+				subLines[subLines.length - 1].push({ ...seg, utf8: rawStr });
+				continue;
+			}
+			const cleanedNoNewline = stripZwsp(rawStr).replace(/[\r\n]+/g, "").trim();
+			if (cleanedNoNewline === "") {
+				lineBreakSegs.push({ ...seg, utf8: rawStr.replace(/\r\n/g, "\n") });
+				subLines.push([]);
+			} else {
+				const parts = rawStr.split(/\r?\n/);
+				for (let pIdx = 0; pIdx < parts.length; pIdx++) {
+					if (parts[pIdx].length > 0) {
+						subLines[subLines.length - 1].push({ ...seg, utf8: parts[pIdx] });
+					}
+					if (pIdx < parts.length - 1) {
+						const lbPen = defaultHiddenPenId ?? seg.pPenId ?? event.pPenId;
+						lineBreakSegs.push({ ...(lbPen !== undefined && lbPen !== null ? { pPenId: Number(lbPen) } : {}), utf8: "\n" });
+						subLines.push([]);
+					}
+				}
+			}
+		}
+
+		let eventHasVisible = false;
+		const parsedSubLines = subLines.map(lineSegs => {
+			let hasVisible = false;
+			let firstContentIdx = -1;
+			let lastContentIdx = -1;
+			let rawSentence = "";
+			let usesPaddingSpace = false;
+			let usesZwsp = false;
+			let lineHiddenPenId = null;
+			const penLengths = new Map();
+			let fallbackNonRubyPenId;
+			let fallbackVisiblePenId;
+
+			for (let i = 0; i < lineSegs.length; i++) {
+				const s = lineSegs[i];
+				const rawText = String(s.utf8 ?? "");
+				if (rawText.includes("\u200B \u200B")) usesPaddingSpace = true;
+				if (rawText.includes("\u200B")) usesZwsp = true;
+				const cleanText = stripZwsp(rawText);
+				const effPenId = s.pPenId ?? event.pPenId;
+				const fo = getPenFo(effPenId);
+				const rb = getPenRb(effPenId);
+
+				if (fo === 0 && cleanText.length === 0 && effPenId !== undefined && lineHiddenPenId === null) {
+					lineHiddenPenId = Number(effPenId);
+				}
+				if (fo > 0 && effPenId !== undefined) {
+					if (fallbackVisiblePenId === undefined) fallbackVisiblePenId = Number(effPenId);
+					if (rb === 0 && fallbackNonRubyPenId === undefined) fallbackNonRubyPenId = Number(effPenId);
+				}
+				if (cleanText.length > 0) {
+					if (firstContentIdx === -1) firstContentIdx = i;
+					lastContentIdx = i;
+					if (![2, 4, 5].includes(rb)) {
+						rawSentence += cleanText;
+					}
+					const trimmedLen = cleanText.trim().length;
+					if (fo > 0 && trimmedLen > 0) {
+						hasVisible = true;
+						if (effPenId !== undefined && rb === 0) {
+							const key = Number(effPenId);
+							penLengths.set(key, (penLengths.get(key) ?? 0) + trimmedLen);
+						}
+					}
+				}
+			}
+
+			const sentence = decodeHTML(rawSentence.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim());
+			if (!hasVisible || !sentence) {
+				return { isVisible: false, lineSegs };
+			}
+			eventHasVisible = true;
+
+			let dominantPenId;
+			let maxLen = -1;
+			for (const [penId, len] of penLengths.entries()) {
+				if (len > maxLen) {
+					maxLen = len;
+					dominantPenId = penId;
+				}
+			}
+			if (dominantPenId === undefined) {
+				dominantPenId = fallbackNonRubyPenId ?? fallbackVisiblePenId ?? (event.pPenId !== undefined ? Number(event.pPenId) : undefined);
+			}
+
+			const textIdx = textsToTranslate.length;
+			textsToTranslate.push(sentence);
+
+			return {
+				isVisible: true,
+				lineSegs,
+				firstContentIdx,
+				lastContentIdx,
+				textIdx,
+				dominantPenId,
+				hiddenPenId: lineHiddenPenId ?? defaultHiddenPenId,
+				usesPaddingSpace,
+				usesZwsp: usesZwsp || lineHiddenPenId !== null || defaultHiddenPenId !== null,
+			};
+		});
+
+		if (eventHasVisible) {
+			tasks.push({ event, parsedSubLines, lineBreakSegs });
+		}
+	}
+
+	if (textsToTranslate.length === 0) return;
+	const translations = await translateTextList(textsToTranslate, Settings, Languages);
+
+	for (const { event, parsedSubLines, lineBreakSegs } of tasks) {
+		const newSegs = [];
+		for (let sIdx = 0; sIdx < parsedSubLines.length; sIdx++) {
+			const sub = parsedSubLines[sIdx];
+			if (!sub.isVisible) {
+				newSegs.push(...sub.lineSegs);
+			} else {
+				const transText = translations[sub.textIdx] ?? "";
+				if (!transText || transText === "\u200b") {
+					newSegs.push(...sub.lineSegs);
+				} else {
+					const leadingPadding = sub.lineSegs.slice(0, sub.firstContentIdx);
+					const contentSegs = sub.lineSegs.slice(sub.firstContentIdx, sub.lastContentIdx + 1);
+					const trailingPadding = sub.lineSegs.slice(sub.lastContentIdx + 1);
+					const formattedTrans = sub.usesPaddingSpace ? `\u200B \u200B${transText}\u200B \u200B` : transText;
+					const transSeg = {
+						...(sub.dominantPenId !== undefined ? { pPenId: Number(sub.dominantPenId) } : {}),
+						utf8: formattedTrans,
+					};
+					const sepPenId = sub.hiddenPenId ?? sub.dominantPenId;
+					const sepSeg = {
+						...(sepPenId !== undefined && sepPenId !== null ? { pPenId: Number(sepPenId) } : {}),
+						utf8: sub.usesZwsp ? "\u200B\n\u200B" : "\n",
+					};
+					if (Settings?.ShowOnly) {
+						newSegs.push(...leadingPadding, transSeg, ...trailingPadding);
+					} else if (Settings?.Position === "Reverse") {
+						newSegs.push(...leadingPadding, transSeg, sepSeg, ...contentSegs, ...trailingPadding);
+					} else {
+						newSegs.push(...leadingPadding, ...contentSegs, sepSeg, transSeg, ...trailingPadding);
+					}
+				}
+			}
+			if (sIdx < lineBreakSegs.length) {
+				newSegs.push(lineBreakSegs[sIdx]);
+			}
+		}
+		event.segs = newSegs;
+	}
 }
 
 async function translateBrowseLyrics(body, Settings, Languages) {
@@ -604,6 +1063,25 @@ async function translateGetPanelLyrics(rawBody, Settings, Languages) {
 }
 
 async function translateTextList(fullText, Settings, Languages) {
+	if (!Array.isArray(fullText) || fullText.length === 0) return [];
+	const uniqueTexts = [];
+	const textToUniqueIndex = new Map();
+	const indexMap = new Array(fullText.length);
+	for (let i = 0; i < fullText.length; i++) {
+		const raw = typeof fullText[i] === "string" ? fullText[i].trim() : "";
+		if (!raw || raw === "\u200b" || raw === "\u200B") {
+			indexMap[i] = -1;
+			continue;
+		}
+		let uIdx = textToUniqueIndex.get(raw);
+		if (uIdx === undefined) {
+			uIdx = uniqueTexts.length;
+			textToUniqueIndex.set(raw, uIdx);
+			uniqueTexts.push(raw);
+		}
+		indexMap[i] = uIdx;
+	}
+	if (uniqueTexts.length === 0) return fullText.map(() => "");
 	const vendor = Settings?.Vendor || "Google";
 	const translator = new Translate({ Source: Languages?.[0], Target: Languages?.[1], API: Settings?.API?.[vendor] });
 	const fn = translator[vendor]?.bind(translator) || translator.Google.bind(translator);
@@ -612,19 +1090,20 @@ async function translateTextList(fullText, Settings, Languages) {
 	switch (Settings?.Method) {
 		case "Part":
 		default: {
-			const parts = chunk(fullText, length);
+			const parts = chunk(uniqueTexts, length);
 			for (const part of parts) {
 				Queue.push(() => retry(() => fn(part), Settings?.Times ?? 3, Settings?.Interval ?? 500, Settings?.Exponential ?? true));
 			}
 			break;
 		}
 		case "Row":
-			for (const row of fullText) {
+			for (const row of uniqueTexts) {
 				Queue.push(() => retry(() => fn(row), Settings?.Times ?? 3, Settings?.Interval ?? 500, Settings?.Exponential ?? true));
 			}
 			break;
 	}
-	return await Promise.all(Queue.map(q => q())).then(results => results.flat());
+	const uniqueTranslations = await Promise.all(Queue.map(q => q())).then(results => results.flat());
+	return indexMap.map(uIdx => (uIdx === -1 ? "" : (uniqueTranslations[uIdx] ?? "")));
 }
 
 function combineText(originText, transText, ShowOnly = false, position = "Forward", lineBreak = "\n") {
