@@ -413,45 +413,79 @@ export default class Translate {
 		const sanitized = text.map(item => String(item ?? "").replace(/[\r\n]+/g, " ").trim() || "\u200b");
 		source = this.#LanguagesCode.Google[source] ?? this.#LanguagesCode.Google[source?.split?.(/[-_]/)?.[0]?.toUpperCase?.()] ?? source.toLowerCase();
 		target = this.#LanguagesCode.Google[target] ?? this.#LanguagesCode.Google[target?.split?.(/[-_]/)?.[0]?.toUpperCase?.()] ?? target.toLowerCase();
-		const BaseURL = "https://translate.googleapis.com";
-		const Path = "translate_a/single";
-		const Params = {
-			client: "gtx",
-			sl: source,
-			tl: target,
-			hl: "en",
-			dt: "t",
-			dj: "1",
-			ie: "UTF-8",
-			oe: "UTF-8",
-		};
-		const Request = {
-			url: `${BaseURL}/${Path}?${Object.entries(Params)
-				.map(([key, value]) => `${key}=${value}`)
-				.join("&")}`,
-			headers: {
-				"User-Agent": "GoogleTranslate/6.29.59279 (iPhone; iOS 15.4; en; iPhone14,2)",
-				Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-				"Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+		const multiQBody = sanitized.map(item => `q=${encodeURIComponent(item)}`).join("&");
+		const singleQBody = `q=${encodeURIComponent(sanitized.join("\n"))}`;
+		const endpoints = [
+			{
+				mode: "t",
+				url: `https://translate.googleapis.com/translate_a/t?client=dict-chrome-ex&sl=${source}&tl=${target}`,
+				headers: {
+					"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+					Accept: "application/json, text/plain, */*",
+					"Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+				},
+				body: multiQBody,
 			},
-			body: `q=${encodeURIComponent(sanitized.join("\n"))}`,
-		};
-		return await fetch(Request)
-			.then(response => {
-				const body = JSON.parse(response.body);
-				if (Array.isArray(body?.[0])) {
-					return body[0].map(item => item?.[0] ?? "").join("").split(/\r?\n/);
+			{
+				mode: "t",
+				url: `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${source}&tl=${target}`,
+				headers: {
+					"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+					Accept: "application/json, text/plain, */*",
+					"Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+				},
+				body: multiQBody,
+			},
+			{
+				mode: "single",
+				url: `https://translate.googleapis.com/translate_a/single?client=at&sl=${source}&tl=${target}&hl=en&dt=t&dj=1&ie=UTF-8&oe=UTF-8`,
+				headers: {
+					"User-Agent": "GoogleTranslate/6.29.59279 (iPhone; iOS 15.4; en; iPhone14,2)",
+					Accept: "application/json, text/plain, */*",
+					"Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+				},
+				body: singleQBody,
+			},
+			{
+				mode: "single",
+				url: `https://translate.google.com/translate_a/single?client=at&sl=${source}&tl=${target}&hl=en&dt=t&dj=1&ie=UTF-8&oe=UTF-8`,
+				headers: {
+					"User-Agent": "GoogleTranslate/6.29.59279 (iPhone; iOS 15.4; en; iPhone14,2)",
+					Accept: "application/json, text/plain, */*",
+					"Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+				},
+				body: singleQBody,
+			},
+		];
+		try {
+			let lastError;
+			for (const ep of endpoints) {
+				try {
+					const response = await fetch({ url: ep.url, headers: ep.headers, body: ep.body });
+					const raw = response?.body ?? "";
+					if (!raw || raw.trim().startsWith("<")) {
+						throw new Error(`Invalid non-JSON response from ${ep.url}`);
+					}
+					const body = JSON.parse(raw);
+					if (ep.mode === "t" && Array.isArray(body)) {
+						return body.map(item => (Array.isArray(item) ? String(item?.[0] ?? "") : String(item ?? "")));
+					}
+					if (Array.isArray(body?.[0])) {
+						return body[0].map(item => item?.[0] ?? "").join("").split(/\r?\n/);
+					}
+					if (Array.isArray(body)) {
+						return body.map(item => item?.sentences?.map(sentence => sentence?.trans ?? "").join("") ?? "");
+					}
+					const joined = body?.sentences?.map(sentence => sentence?.trans ?? "").join("") ?? "";
+					return joined.split(/\r?\n/);
+				} catch (err) {
+					lastError = err;
 				}
-				if (Array.isArray(body)) {
-					return body.map(item => item?.sentences?.map(sentence => sentence?.trans ?? "").join("") ?? "");
-				}
-				const joined = body?.sentences?.map(sentence => sentence?.trans ?? "").join("") ?? "";
-				return joined.split(/\r?\n/);
-			})
-			.catch(error => Promise.reject(error))
-			.finally(() => {
-				Console.log("✅ Google");
-			});
+			}
+			throw lastError ?? new Error("All Google Translate endpoints failed");
+		} finally {
+			Console.log("✅ Google");
+		}
 	}
 
 	async GoogleCloud(text = [], source = this.Source, target = this.Target, api = this.API) {

@@ -7,8 +7,8 @@ author: |-
 homepage: "https://DualSubs.github.io/guide/youtube"
 icon: "https://github.com/DualSubs/YouTube/raw/main/src/assets/icon_rounded.png"
 category: "🍿️ DualSubs"
-date: "2026-11-07 08:28:00"
-version: "1.6.3"
+date: "2026-11-10 07:07:56"
+version: "1.6.4"
 
 http:
   mitm:
@@ -104,13 +104,13 @@ script-providers:
     url: https://github.com/NSNanoCat/PreferencePanes/releases/download/v1.3.1/api.js
     interval: 86400
   📺 DualSubs.YouTube.Config:
-    url: https://github.com/DualSubs/YouTube/releases/download/v1.6.3/config.bundle.js
+    url: https://github.com/DualSubs/YouTube/releases/download/v1.6.4/config.bundle.js
     interval: 86400
   🍿️ DualSubs.YouTube.request:
-    url: https://github.com/DualSubs/YouTube/releases/download/v1.6.3/request.bundle.js
+    url: https://github.com/DualSubs/YouTube/releases/download/v1.6.4/request.bundle.js
     interval: 86400
   🍿️ DualSubs.YouTube.response:
-    url: https://github.com/DualSubs/YouTube/releases/download/v1.6.3/response.bundle.js
+    url: https://github.com/DualSubs/YouTube/releases/download/v1.6.4/response.bundle.js
     interval: 86400
   🍿️ DualSubs.YouTube.Composite.TimedText.response:
     url: https://github.com/DualSubs/Universal/releases/latest/download/Composite.Subtitles.response.bundle.js
