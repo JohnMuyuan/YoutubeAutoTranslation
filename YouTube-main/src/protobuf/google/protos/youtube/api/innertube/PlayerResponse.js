@@ -85,6 +85,7 @@ class PlayerCaptionsTracklistRenderer$Type extends MessageType {
 			{ no: 2, name: "audioTracks", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => AudioTrack },
 			{ no: 3, name: "translationLanguages", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => TranslationLanguage },
 			{ no: 4, name: "defaultAudioTrackIndex", kind: "scalar", opt: true, T: ScalarType.INT32 },
+			{ no: 5, name: "defaultTranslationSourceTrackIndices", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: ScalarType.INT32 },
 			{ no: 6, name: "defaultCaptionTrackIndex", kind: "scalar", opt: true, T: ScalarType.INT32 },
 		]);
 	}
@@ -93,6 +94,7 @@ class PlayerCaptionsTracklistRenderer$Type extends MessageType {
 		message.captionTracks = [];
 		message.audioTracks = [];
 		message.translationLanguages = [];
+		message.defaultTranslationSourceTrackIndices = [];
 		if (value !== undefined) reflectionMergePartial(this, message, value);
 		return message;
 	}
@@ -112,6 +114,13 @@ class PlayerCaptionsTracklistRenderer$Type extends MessageType {
 					break;
 				case /* optional int32 default_audio_track_index */ 4:
 					message.defaultAudioTrackIndex = reader.int32();
+					break;
+				case /* repeated int32 default_translation_source_track_indices */ 5:
+					if (wireType === WireType.LengthDelimited)
+						for (let e = reader.int32() + reader.pos; reader.pos < e;)
+							message.defaultTranslationSourceTrackIndices.push(reader.int32());
+					else
+						message.defaultTranslationSourceTrackIndices.push(reader.int32());
 					break;
 				case /* optional int32 default_caption_track_index */ 6:
 					message.defaultCaptionTrackIndex = reader.int32();
@@ -138,6 +147,9 @@ class PlayerCaptionsTracklistRenderer$Type extends MessageType {
 		/* optional int32 default_audio_track_index = 4; */
 		if (message.defaultAudioTrackIndex !== undefined)
 			writer.tag(4, WireType.Varint).int32(message.defaultAudioTrackIndex);
+		/* repeated int32 default_translation_source_track_indices = 5; */
+		for (let i = 0; i < message.defaultTranslationSourceTrackIndices.length; i++)
+			writer.tag(5, WireType.Varint).int32(message.defaultTranslationSourceTrackIndices[i]);
 		/* optional int32 default_caption_track_index = 6; */
 		if (message.defaultCaptionTrackIndex !== undefined)
 			writer.tag(6, WireType.Varint).int32(message.defaultCaptionTrackIndex);

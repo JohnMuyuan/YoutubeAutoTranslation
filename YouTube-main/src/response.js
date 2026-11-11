@@ -643,7 +643,13 @@ async function translateStyledXmlParagraphs(rawList, penMap, Settings, Languages
 					break;
 				}
 			}
-			if (typeof para["#"] !== "string" && newSegs.length > 1) {
+			if (typeof para["#"] === "string" && para["#"].replace(/\u200B/g, "").trim() === "") {
+				if (newSegs.length > 1) {
+					para["#"] = "\u200B";
+				} else if (hasS) {
+					delete para["#"];
+				}
+			} else if (typeof para["#"] !== "string" && newSegs.length > 1) {
 				para["#"] = "\u200B";
 			}
 			const newOrder = [];

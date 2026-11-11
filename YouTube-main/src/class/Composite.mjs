@@ -129,6 +129,20 @@ export default class Composite {
 					const addSeg = { ...(penId !== undefined ? { "@p": penId } : {}), "#": `\u200B \u200B${otherText}\u200B \u200B` };
 					segs.push(sepSeg, addSeg);
 					targetPara.s = segs;
+					const xmlOrderSym = Object.getOwnPropertySymbols(targetPara)[0];
+					if (xmlOrderSym && Array.isArray(targetPara[xmlOrderSym])) {
+						if (typeof targetPara["#"] !== "string" || targetPara["#"].replace(/\u200B/g, "").trim() === "") {
+							targetPara["#"] = "\u200B";
+						}
+						const newOrder = [];
+						for (let idx = 0; idx < segs.length; idx++) {
+							newOrder.push(["s", idx]);
+							if (idx === 0 && typeof targetPara["#"] === "string") {
+								newOrder.push(["#", 0]);
+							}
+						}
+						targetPara[xmlOrderSym].splice(0, targetPara[xmlOrderSym].length, ...newOrder);
+					}
 				} else {
 					targetPara["#"] = (Position.includes("Reverse") ? `${text2}&#x000A;${text1}` : `${text1}&#x000A;${text2}`).trim();
 				}
